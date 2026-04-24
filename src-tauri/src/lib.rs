@@ -23,7 +23,7 @@ mod ocr {
             OcrEngine::TryCreateFromLanguage(&language).map_err(|e| e.to_string())?
         };
 
-        let result = engine
+        let raw = engine
             .RecognizeAsync(&bitmap)
             .map_err(|e| e.to_string())?
             .get()
@@ -32,7 +32,15 @@ mod ocr {
             .map_err(|e| e.to_string())?
             .to_string_lossy();
 
-        Ok(result)
+        // 清理多余空格和空行
+        let cleaned = raw
+            .lines()
+            .map(|line| line.split_whitespace().collect::<Vec<_>>().join(""))
+            .filter(|line| !line.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        Ok(cleaned)
     }
 
     fn open_image_as_bitmap(path: &str) -> windows::core::Result<windows::Graphics::Imaging::SoftwareBitmap> {

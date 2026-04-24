@@ -101,8 +101,8 @@ export async function exportToEpub(bookId: string): Promise<Blob> {
 
   // 动态导入 epub-gen-memory，避免 CJS/fs 模块影响编辑器加载
   const ePubModule = await import('epub-gen-memory')
-  // eslint-disable-next-line ts/no-explicit-any -- CJS default export interop
-  const ePub = (ePubModule as any).default || ePubModule
+  // eslint-disable-next-line ts/no-explicit-any -- CJS/ESM 互操作：可能存在双重 default 包装
+  const ePub = (ePubModule as any).default?.default || (ePubModule as any).default || ePubModule
   // 浏览器环境 genEpub 返回 Blob (type='blob')
   const result = await ePub(options, content)
   if (result instanceof Blob) {
@@ -112,7 +112,7 @@ export async function exportToEpub(bookId: string): Promise<Blob> {
   return new Blob([new Uint8Array(result as unknown as ArrayBuffer)], { type: 'application/epub+zip' })
 }
 
-function isTauri(): boolean {
+export function isTauri(): boolean {
   return !!window.__TAURI_INTERNALS__
 }
 

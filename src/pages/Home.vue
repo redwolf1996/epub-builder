@@ -91,9 +91,11 @@ const handleSettings = (id: string) => {
           <!-- 封面 -->
           <div class="book-cover">
             <img v-if="book.meta.coverImage" :src="book.meta.coverImage" alt="cover" class="cover-img" />
-            <div v-else class="cover-placeholder">
-              <span class="i-carbon-document text-3xl" style="color: var(--text-muted)" />
-              <span class="text-xs mt-2 px-2 text-center" style="color: var(--text-muted)">{{ book.meta.title }}</span>
+            <div v-else class="cover-default" />
+            <!-- 封面文字 -->
+            <div class="cover-text">
+              <span class="cover-title">{{ book.meta.title }}</span>
+              <span v-if="book.meta.author" class="cover-author">{{ book.meta.author }}</span>
             </div>
             <!-- 悬浮操作 -->
             <div class="book-actions" @click.stop>
@@ -109,11 +111,6 @@ const handleSettings = (id: string) => {
                 {{ t('home.confirmDelete') }}
               </NPopconfirm>
             </div>
-          </div>
-          <!-- 书名 -->
-          <div class="book-info">
-            <span class="book-title">{{ book.meta.title }}</span>
-            <span class="book-author">{{ book.meta.author || t('home.noAuthor') }}</span>
           </div>
         </div>
       </div>
@@ -179,8 +176,6 @@ const handleSettings = (id: string) => {
   background: var(--bg-elevated);
   box-shadow: var(--shadow-sm), -3px 0 6px rgba(0, 0, 0, 0.15);
   transition: box-shadow 0.3s ease;
-  /* 书脊效果 */
-  border-left: 4px solid var(--primary-dark);
 }
 
 .cover-img {
@@ -189,14 +184,40 @@ const handleSettings = (id: string) => {
   object-fit: cover;
 }
 
-.cover-placeholder {
-  width: 100%;
-  height: 100%;
+.cover-default {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(145deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+}
+
+.cover-text {
+  position: absolute;
+  inset: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, var(--bg-elevated) 0%, var(--bg-surface) 100%);
+  padding: 12px 16px;
+  background: linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,0.3) 40%, rgba(0,0,0,0.3) 60%, rgba(0,0,0,0) 100%);
+}
+
+.cover-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #fff;
+  text-align: center;
+  text-shadow: 0 0 8px rgba(255,255,255,0.6), 0 0 20px rgba(100,180,255,0.4), 0 1px 3px rgba(0,0,0,0.8);
+  word-break: break-word;
+  line-height: 1.3;
+}
+
+.cover-author {
+  font-size: 0.7rem;
+  color: rgba(255,255,255,0.85);
+  text-align: center;
+  text-shadow: 0 0 6px rgba(255,255,255,0.4), 0 1px 2px rgba(0,0,0,0.8);
+  margin-top: 6px;
+  word-break: break-word;
 }
 
 .book-actions {
@@ -217,27 +238,4 @@ const handleSettings = (id: string) => {
   opacity: 1;
 }
 
-.book-info {
-  margin-top: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.book-title {
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.book-author {
-  font-size: 0.75rem;
-  color: var(--text-secondary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 </style>

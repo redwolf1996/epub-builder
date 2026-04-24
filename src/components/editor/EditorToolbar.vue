@@ -19,6 +19,7 @@
   }
 
   const editorRef = defineModel<EditorActions | null>('editorRef', { required: false })
+  import { isTauri } from '@/utils/epub'
   const showHelp = ref(false)
   const { t } = useI18n()
 
@@ -133,7 +134,7 @@
         {{ t('toolbar.image') }}
       </NTooltip>
 
-      <NTooltip trigger="hover">
+      <NTooltip v-if="isTauri()" trigger="hover">
         <template #trigger>
           <NButton quaternary @click="handleOcr">
             <span class="i-carbon-scan text-sm" />

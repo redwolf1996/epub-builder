@@ -1,65 +1,70 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { NButton, NButtonGroup, NTooltip } from 'naive-ui'
-import { useI18n } from 'vue-i18n'
-import MarkdownHelp from '@/components/editor/MarkdownHelp.vue'
+  import { ref } from 'vue'
+  import { NButton, NButtonGroup, NTooltip } from 'naive-ui'
+  import { useI18n } from 'vue-i18n'
+  import MarkdownHelp from '@/components/editor/MarkdownHelp.vue'
 
-const props = defineProps<{
-  exporting?: boolean
-}>()
+  const props = defineProps<{
+    exporting?: boolean
+  }>()
 
-const emit = defineEmits<{
-  export: []
-}>()
+  const emit = defineEmits<{
+    export: []
+    ocr: []
+  }>()
 
-export interface EditorActions {
-  insertText: (text: string) => void
-  wrapSelection: (before: string, after: string) => void
-}
+  export interface EditorActions {
+    insertText: (text: string) => void
+    wrapSelection: (before: string, after: string) => void
+  }
 
-const editorRef = defineModel<EditorActions | null>('editorRef', { required: false })
-const showHelp = ref(false)
-const { t } = useI18n()
+  const editorRef = defineModel<EditorActions | null>('editorRef', { required: false })
+  const showHelp = ref(false)
+  const { t } = useI18n()
 
-const handleHeading = () => {
-  editorRef.value?.insertText('## ')
-}
+  const handleHeading = () => {
+    editorRef.value?.insertText('## ')
+  }
 
-const handleBold = () => {
-  editorRef.value?.wrapSelection('**', '**')
-}
+  const handleBold = () => {
+    editorRef.value?.wrapSelection('**', '**')
+  }
 
-const handleItalic = () => {
-  editorRef.value?.wrapSelection('*', '*')
-}
+  const handleItalic = () => {
+    editorRef.value?.wrapSelection('*', '*')
+  }
 
-const handleLink = () => {
-  editorRef.value?.insertText('[链接文字](url)')
-}
+  const handleLink = () => {
+    editorRef.value?.insertText('[链接文字](url)')
+  }
 
-const handleCode = () => {
-  editorRef.value?.wrapSelection('`', '`')
-}
+  const handleCode = () => {
+    editorRef.value?.wrapSelection('`', '`')
+  }
 
-const handleCodeBlock = () => {
-  editorRef.value?.insertText('\n```javascript\n\n```\n')
-}
+  const handleCodeBlock = () => {
+    editorRef.value?.insertText('\n```javascript\n\n```\n')
+  }
 
-const handleImage = () => {
-  editorRef.value?.insertText('![图片描述](image-url)')
-}
+  const handleImage = () => {
+    editorRef.value?.insertText('![图片描述](image-url)')
+  }
 
-const handleQuote = () => {
-  editorRef.value?.insertText('> ')
-}
+  const handleQuote = () => {
+    editorRef.value?.insertText('> ')
+  }
 
-const handleList = () => {
-  editorRef.value?.insertText('- ')
-}
+  const handleList = () => {
+    editorRef.value?.insertText('- ')
+  }
 
-const handleExport = () => {
-  emit('export')
-}
+  const handleOcr = () => {
+    emit('ocr')
+  }
+
+  const handleExport = () => {
+    emit('export')
+  }
 </script>
 
 <template>
@@ -130,6 +135,15 @@ const handleExport = () => {
 
       <NTooltip trigger="hover">
         <template #trigger>
+          <NButton quaternary @click="handleOcr">
+            <span class="i-carbon-scan text-sm" />
+          </NButton>
+        </template>
+        {{ t('toolbar.ocr') }}
+      </NTooltip>
+
+      <NTooltip trigger="hover">
+        <template #trigger>
           <NButton quaternary @click="handleCode">
             <span class="i-carbon-code text-sm" />
           </NButton>
@@ -168,9 +182,9 @@ const handleExport = () => {
 </template>
 
 <style scoped>
-.editor-toolbar {
-  border-bottom: 1px solid var(--border-color);
-  background: var(--bg-surface);
-  backdrop-filter: blur(12px);
-}
+  .editor-toolbar {
+    border-bottom: 1px solid var(--border-color);
+    background: var(--bg-surface);
+    backdrop-filter: blur(12px);
+  }
 </style>

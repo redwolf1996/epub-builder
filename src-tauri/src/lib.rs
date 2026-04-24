@@ -1,8 +1,71 @@
+#[cfg(target_os = "windows")]
+mod ocr {
+    use std::fs;
+    use windows::{
+        core::HSTRING,
+        Globalization::Language,
+        Graphics::Imaging::BitmapDecoder,
+        Media::Ocr::OcrEngine,
+        Storage::{FileAccessMode, StorageFile},
+    };
+
+    pub fn ocr_image(path: &str, lang: &str) -> Result<String, String> {
+        let bitmap = open_image_as_bitmap(path).map_err(|e| e.to_string())?;
+        let engine = if lang.is_empty() {
+            let available = OcrEngine::AvailableRecognizerLanguages()
+                .map_err(|e| e.to_string())?;
+            let first = available.First().map_err(|e| e.to_string())?;
+            let tag = first.Current().map_err(|e| e.to_string())?.LanguageTag().map_err(|e| e.to_string())?;
+            let language = Language::CreateLanguage(&HSTRING::from(tag)).map_err(|e| e.to_string())?;
+            OcrEngine::TryCreateFromLanguage(&language).map_err(|e| e.to_string())?
+        } else {
+            let language = Language::CreateLanguage(&HSTRING::from(lang)).map_err(|e| e.to_string())?;
+            OcrEngine::TryCreateFromLanguage(&language).map_err(|e| e.to_string())?
+        };
+
+        let result = engine
+            .RecognizeAsync(&bitmap)
+            .map_err(|e| e.to_string())?
+            .get()
+            .map_err(|e| e.to_string())?
+            .Text()
+            .map_err(|e| e.to_string())?
+            .to_string_lossy();
+
+        Ok(result)
+    }
+
+    fn open_image_as_bitmap(path: &str) -> windows::core::Result<windows::Graphics::Imaging::SoftwareBitmap> {
+        let canonical = fs::canonicalize(path)
+            .map_err(|_| windows::core::Error::from_win32())?;
+        let path_str = canonical.to_string_lossy().replace("\\\\?\\", "");
+
+        let file = StorageFile::GetFileFromPathAsync(&HSTRING::from(path_str))?.get()?;
+        let stream = file.OpenAsync(FileAccessMode::Read)?.get()?;
+        let decoder = BitmapDecoder::CreateAsync(&stream)?.get()?;
+        decoder.GetSoftwareBitmapAsync()?.get()
+    }
+}
+
+#[tauri::command]
+fn ocr_image(path: String, lang: String) -> Result<String, String> {
+    #[cfg(target_os = "windows")]
+    {
+        ocr::ocr_image(&path, &lang)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (path, lang);
+        Err("OCR is only supported on Windows".to_string())
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        .invoke_handler(tauri::generate_handler![ocr_image])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

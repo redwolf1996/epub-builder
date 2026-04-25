@@ -2,7 +2,7 @@
   import { onMounted, ref, watch } from 'vue'
   import { useRoute, useRouter } from 'vue-router'
   import { useI18n } from 'vue-i18n'
-  import { NButton, NInput, NPopconfirm, NScrollbar, NModal, useMessage } from 'naive-ui'
+  import { NButton, NInput, NScrollbar, NModal, useMessage } from 'naive-ui'
   import { useBookStore } from '@/stores/book'
   import { useEditorStore } from '@/stores/editor'
   import { useEpub } from '@/composables/useEpub'
@@ -10,10 +10,10 @@
   import type { EditorActions } from '@/components/editor/EditorToolbar.vue'
   import EditorToolbar from '@/components/editor/EditorToolbar.vue'
   import MarkdownPreview from '@/components/preview/MarkdownPreview.vue'
-  import { VueDraggable } from 'vue-draggable-plus'
   import { open } from '@tauri-apps/plugin-dialog'
   import { invoke } from '@tauri-apps/api/core'
   import type { Chapter } from '@/types'
+  import ChapterNode from '@/components/editor/ChapterNode.vue'
 
   const route = useRoute()
   const router = useRouter()
@@ -26,9 +26,11 @@
   const cmEditorRef = ref<InstanceType<typeof CodeMirrorEditor> | null>(null)
   const showAddChapter = ref(false)
   const newChapterTitle = ref('')
+  const addChapterParentId = ref<string | null>(null)
   const editingChapterId = ref<string | null>(null)
   const editingTitle = ref('')
   const isMobile = ref(window.innerWidth < 768)
+  const collapsedIds = ref<Set<string>>(new Set())
 
   // 拖拽分割线宽度（持久化）
   const sidebarWidth = ref(Number(localStorage.getItem('editor-sidebar-width')) || 240)
@@ -127,12 +129,17 @@
     }
   }
 
-  // 单击章节：选中 + 进入编辑
+  // 单击章节：仅选中
   const handleChapterClick = (chapter: { id: string; title: string }) => {
     if (editingChapterId.value === chapter.id) return // 正在编辑此章节
     if (editingChapterId.value) {
       confirmRename() // 先保存正在编辑的
     }
+    handleSelectChapter(chapter.id)
+  }
+
+  // 双击章节：选中 + 进入编辑
+  const handleChapterDblClick = (chapter: { id: string; title: string }) => {
     handleSelectChapter(chapter.id)
     startRenameChapter(chapter.id, chapter.title)
   }
@@ -145,8 +152,8 @@
   }
 
   // 拖拽排序后的回调
-  const onChapterSortEnd = async () => {
-    await bookStore.reorderChapters(localChapters.value.map((c) => c.id))
+  const onChapterSortEnd = async (parentId: string | null, orderedIds: string[]) => {
+    await bookStore.reorderChapters(parentId, orderedIds)
   }
 
   // 本地可拖拽章节列表（VueDraggable 需要 v-model 可写）
@@ -162,10 +169,21 @@
       message.warning(t('editor.chapterTitle'))
       return
     }
-    await bookStore.addChapter(bookId, newChapterTitle.value.trim())
+    await bookStore.addChapter(bookId, newChapterTitle.value.trim(), addChapterParentId.value)
     newChapterTitle.value = ''
+    addChapterParentId.value = null
     showAddChapter.value = false
     message.success(t('editor.chapterAdded'))
+  }
+
+  const handleAddSubChapter = (parentId: string) => {
+    addChapterParentId.value = parentId
+    showAddChapter.value = true
+  }
+
+  const handlePromoteChapter = async (chapterId: string) => {
+    await bookStore.moveChapterToParent(chapterId, null)
+    message.success(t('editor.chapterPromoted'))
   }
 
   const handleDeleteChapter = async (chapterId: string) => {
@@ -193,6 +211,13 @@
   const cancelRename = () => {
     editingChapterId.value = null
     editingTitle.value = ''
+  }
+
+  const toggleCollapse = (id: string) => {
+    const s = new Set(collapsedIds.value)
+    if (s.has(id)) s.delete(id)
+    else s.add(id)
+    collapsedIds.value = s
   }
 
   const handleContentChange = (value: string) => {
@@ -268,49 +293,33 @@
       </div>
 
       <NScrollbar class="flex-1">
-        <VueDraggable
-          v-model="localChapters"
-          :animation="150"
-          handle=".drag-handle"
-          @end="onChapterSortEnd"
-          class="p-2 flex flex-col gap-1">
-          <div
-            v-for="chapter in localChapters"
-            :key="chapter.id"
-            class="chapter-item flex items-center gap-2 px-3 py-2 rounded transition-all"
-            :class="{ active: bookStore.currentChapter?.id === chapter.id }">
-            <span
-              class="drag-handle shrink-0 flex items-center justify-center"
-              style="color: var(--text-muted); width: 16px; height: 24px; cursor: grab">⠿</span>
-            <template v-if="editingChapterId === chapter.id">
-              <NInput
-                v-model:value="editingTitle"
-                size="tiny"
-                autofocus
-                class="flex-1"
-                @keyup.enter="confirmRename"
-                @keyup.escape="cancelRename"
-                @blur="confirmRename" />
-            </template>
-            <template v-else>
-              <span
-                class="flex-1 text-sm truncate cursor-pointer"
-                @click="handleChapterClick(chapter)">{{ chapter.title }}</span>
-            </template>
-            <NPopconfirm @positive-click="handleDeleteChapter(chapter.id)">
-              <template #trigger>
-                <NButton quaternary size="tiny" @click.stop class="delete-btn">
-                  <span class="i-carbon-trash-can text-xs" />
-                </NButton>
-              </template>
-              {{ t('editor.confirmDeleteChapter') }}
-            </NPopconfirm>
-          </div>
+        <div class="p-2">
+          <ChapterNode
+            :parent-id="null"
+            :chapters="localChapters"
+            :current-chapter-id="bookStore.currentChapter?.id"
+            :editing-chapter-id="editingChapterId"
+            :collapsed-ids="collapsedIds"
+            :delete-confirm-text="t('editor.confirmDeleteChapter')"
+            :add-sub-text="t('editor.addSubChapter')"
+            :promote-text="t('editor.promoteChapter')"
+            :delete-text="t('editor.deleteChapter')"
+            :confirm-text="t('editor.confirm')"
+            :cancel-text="t('editor.cancel')"
+            @select="handleChapterClick"
+            @rename-start="handleChapterDblClick"
+            @rename-confirm="confirmRename"
+            @rename-cancel="cancelRename"
+            @add-sub="handleAddSubChapter"
+            @promote="handlePromoteChapter"
+            @delete="handleDeleteChapter"
+            @reorder="onChapterSortEnd"
+            @toggle-collapse="toggleCollapse" />
           <div v-if="bookStore.chapters.length === 0" class="text-center text-sm py-8" style="color: var(--text-muted)">
             <span class="i-carbon-document-blank text-2xl block mb-2" />
             {{ t('editor.noChapters') }}
           </div>
-        </VueDraggable>
+        </div>
       </NScrollbar>
 
       <div class="p-3" style="border-top: 1px solid var(--border-color)">
@@ -382,43 +391,6 @@
   .chapter-sidebar {
     background: var(--bg-surface);
     backdrop-filter: blur(8px);
-  }
-
-  .chapter-item {
-    color: var(--text-secondary);
-  }
-
-  .chapter-item:hover {
-    background: var(--bg-hover);
-    color: var(--text-primary);
-  }
-
-  .chapter-item.active {
-    background: var(--bg-active);
-    color: var(--primary);
-    font-weight: 500;
-  }
-
-  .chapter-item:hover .n-button {
-    opacity: 1;
-  }
-
-  .drag-handle {
-    opacity: 0.4;
-    transition: opacity 0.2s;
-  }
-
-  .chapter-item:hover .drag-handle {
-    opacity: 1;
-  }
-
-  .delete-btn {
-    opacity: 0;
-    transition: opacity 0.2s;
-  }
-
-  .chapter-item:hover .delete-btn {
-    opacity: 1;
   }
 
   .mobile-tabs {

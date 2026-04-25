@@ -99,12 +99,12 @@ const handleSettings = (id: string) => {
             </div>
             <!-- 悬浮操作 -->
             <div class="book-actions" @click.stop>
-              <NButton quaternary size="tiny" circle @click="handleSettings(book.id)">
+              <NButton size="small" circle @click="handleSettings(book.id)" class="action-btn">
                 <span class="i-carbon-settings" />
               </NButton>
-              <NPopconfirm @positive-click="handleDeleteBook(book.id)">
+              <NPopconfirm :positive-text="t('home.confirm')" :negative-text="t('home.cancel')" @positive-click="handleDeleteBook(book.id)">
                 <template #trigger>
-                  <NButton quaternary size="tiny" circle type="error">
+                  <NButton size="small" circle type="error" class="action-btn">
                     <span class="i-carbon-trash-can" />
                   </NButton>
                 </template>
@@ -228,14 +228,35 @@ const handleSettings = (id: string) => {
   gap: 4px;
   opacity: 0;
   transition: opacity 0.2s ease;
-  background: var(--bg-card);
-  border-radius: 16px;
-  padding: 2px;
-  backdrop-filter: blur(8px);
 }
 
 .book-card:hover .book-actions {
   opacity: 1;
+}
+
+.action-btn {
+  border: none !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.action-btn:not(.n-button--error-type) {
+  background: rgba(255, 255, 255, 0.9) !important;
+  color: #333 !important;
+}
+
+.action-btn:not(.n-button--error-type):hover {
+  background: #fff !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+.action-btn.n-button--error-type {
+  background: #e03050 !important;
+  color: #fff !important;
+}
+
+.action-btn.n-button--error-type:hover {
+  background: #c02040 !important;
+  box-shadow: 0 4px 12px rgba(224, 48, 80, 0.4);
 }
 
 </style>

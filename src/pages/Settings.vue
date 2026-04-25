@@ -67,28 +67,30 @@ const handleSave = async () => {
   }
 }
 
-const handleCoverChange = (options: { file: UploadFileInfo; fileList: UploadFileInfo[] }) => {
+const handleCoverChange = async (options: { file: UploadFileInfo; fileList: UploadFileInfo[] }) => {
   const file = options.file.file
   if (!file) return
 
   const reader = new FileReader()
-  reader.onload = (e) => {
+  reader.onload = async (e) => {
     const result = e.target?.result
     if (typeof result === 'string') {
       meta.value.coverImage = result
+      await bookStore.updateBookMeta(bookId, { coverImage: result })
     }
   }
   reader.readAsDataURL(file)
 }
 
-const handleRemoveCover = () => {
+const handleRemoveCover = async () => {
   meta.value.coverImage = null
+  await bookStore.updateBookMeta(bookId, { coverImage: null })
 }
 </script>
 
 <template>
   <div class="settings-page h-full flex flex-col overflow-hidden">
-    <header class="header-bar flex items-center gap-4 px-6 py-4">
+    <header class="header-bar flex items-center gap-4 px-6 py-3">
       <NButton quaternary @click="handleBack">
         <span class="i-carbon-arrow-left mr-1" />
         {{ t('settings.back') }}
@@ -96,43 +98,65 @@ const handleRemoveCover = () => {
       <span class="text-lg font-semibold">{{ t('settings.title') }}</span>
     </header>
 
-    <main class="flex-1 overflow-auto px-6 py-6 max-w-2xl mx-auto w-full">
-      <!-- 封面预览 -->
-      <div v-if="meta.coverImage" class="mb-6 flex flex-col items-center gap-3">
-        <img :src="meta.coverImage" alt="封面" class="w-48 h-64 object-cover rounded-lg shadow-lg" />
-        <NButton size="small" type="error" @click="handleRemoveCover">{{ t('settings.removeCover') }}</NButton>
-      </div>
-
-      <NForm label-placement="top">
-        <NFormItem :label="t('settings.bookTitle')">
-          <NInput v-model:value="meta.title" :placeholder="t('settings.bookTitlePlaceholder')" />
-        </NFormItem>
-        <NFormItem :label="t('settings.authorLabel')">
-          <NInput v-model:value="meta.author" :placeholder="t('settings.authorPlaceholder')" />
-        </NFormItem>
-        <NFormItem :label="t('settings.description')">
-          <NInput v-model:value="meta.description" type="textarea" :placeholder="t('settings.descriptionPlaceholder')" :rows="4" />
-        </NFormItem>
-        <NFormItem :label="t('settings.coverImage')">
+    <main class="flex-1 overflow-auto flex items-center justify-center px-6 py-6 w-full">
+      <div class="settings-card flex gap-8 w-full max-w-4xl items-stretch">
+        <!-- 左侧：封面 -->
+        <div class="shrink-0 flex items-center" style="width: 240px">
           <NUpload
+            v-if="!meta.coverImage"
             :max="1"
             accept="image/*"
             :show-file-list="false"
             @change="handleCoverChange"
+            class="cover-upload"
           >
-            <NButton>{{ t('settings.uploadCover') }}</NButton>
+            <div class="cover-empty-bg w-full aspect-[3/4] rounded-lg flex flex-col items-center justify-center gap-3">
+              <span class="i-carbon-image text-4xl" style="color: var(--text-muted)" />
+              <NButton type="primary">
+                <template #icon>
+                  <span class="i-carbon-upload" />
+                </template>
+                {{ t('settings.uploadCover') }}
+              </NButton>
+            </div>
           </NUpload>
-        </NFormItem>
-        <NFormItem :label="t('settings.publishDate')">
-          <NDatePicker v-model:value="dateTimestamp" type="date" class="w-full" @update:value="handleDateChange" />
-        </NFormItem>
-        <NFormItem>
-          <div class="flex gap-3">
-            <NButton type="primary" @click="handleSave">{{ isNewBook ? t('settings.saveAndEdit') : t('settings.save') }}</NButton>
-            <NButton v-if="!isNewBook" @click="router.push(`/editor/${bookId}`)">{{ t('settings.goToEdit') }}</NButton>
+          <div v-else class="cover-area cover-has-img w-full aspect-[3/4] rounded-lg relative overflow-hidden">
+            <img :src="meta.coverImage" alt="封面" class="w-full h-full object-cover rounded-lg shadow-lg" />
+            <div class="cover-overlay">
+              <NButton size="small" type="error" @click="handleRemoveCover">
+                <template #icon>
+                  <span class="i-carbon-trash-can" />
+                </template>
+                {{ t('settings.removeCover') }}
+              </NButton>
+            </div>
           </div>
-        </NFormItem>
-      </NForm>
+        </div>
+
+        <!-- 右侧：表单 -->
+        <div class="flex-1 min-w-1 flex flex-col h-[320px]">
+          <NForm label-placement="left" label-width="auto" :show-feedback="false" class="h-full flex flex-col justify-between">
+          <NFormItem :label="t('settings.bookTitle')">
+            <NInput v-model:value="meta.title" :placeholder="t('settings.bookTitlePlaceholder')" />
+          </NFormItem>
+          <NFormItem :label="t('settings.authorLabel')">
+            <NInput v-model:value="meta.author" :placeholder="t('settings.authorPlaceholder')" />
+          </NFormItem>
+          <NFormItem :label="t('settings.description')">
+            <NInput v-model:value="meta.description" type="textarea" :placeholder="t('settings.descriptionPlaceholder')" :rows="2" />
+          </NFormItem>
+          <NFormItem :label="t('settings.publishDate')">
+            <NDatePicker v-model:value="dateTimestamp" type="date" class="w-full" @update:value="handleDateChange" />
+          </NFormItem>
+          <NFormItem :label="' '">
+            <div class="flex gap-3">
+              <NButton type="primary" @click="handleSave">{{ isNewBook ? t('settings.saveAndEdit') : t('settings.save') }}</NButton>
+              <NButton v-if="!isNewBook" @click="router.push(`/editor/${bookId}`)">{{ t('settings.goToEdit') }}</NButton>
+            </div>
+          </NFormItem>
+        </NForm>
+        </div>
+      </div>
     </main>
   </div>
 </template>
@@ -142,9 +166,64 @@ const handleRemoveCover = () => {
   background: var(--bg-base);
 }
 
+.settings-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 24px;
+}
+
 .header-bar {
   backdrop-filter: blur(12px);
   background: var(--bg-surface);
   border-bottom: 1px solid var(--border-color);
+}
+
+.cover-area {
+  background: var(--bg-surface);
+  border: 2px dashed var(--border-color);
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+.cover-area:hover {
+  border-color: var(--primary);
+}
+
+.cover-empty-bg {
+  background: var(--bg-surface);
+  border: 2px dashed var(--border-color);
+  transition: border-color 0.2s;
+}
+
+.cover-empty-bg:hover {
+  border-color: var(--primary);
+}
+
+.cover-has-img {
+  border: none;
+  cursor: default;
+}
+
+.cover-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.cover-has-img:hover .cover-overlay {
+  opacity: 1;
+}
+
+.cover-upload :deep(.n-upload-trigger) {
+  width: 100%;
+  display: flex;
+  justify-content: center;
 }
 </style>

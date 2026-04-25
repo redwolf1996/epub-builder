@@ -1,21 +1,113 @@
 import { renderMarkdown } from '@/utils/markdown'
 import { db } from '@/db'
-import type { BookMeta } from '@/types'
+import type { BookMeta, Chapter } from '@/types'
 import type { Options, Content } from 'epub-gen-memory'
 
 /**
- * 如果 Markdown 渲染后的 HTML 首行 <h1> 与章节标题相同，则去除该 <h1> 避免重复
+ * 如果 Markdown 渲染后的 HTML 首行标题与章节标题相同，则去除该标题避免重复
+ * 匹配 h1~h6
  */
 function deduplicateChapterTitle(html: string, chapterTitle: string): string {
-  const h1Match = html.match(/^\s*<h1>(.*?)<\/h1>/)
-  if (h1Match) {
-    const headingText = h1Match[1].replace(/<[^>]*>/g, '').trim()
+  const hMatch = html.match(/^\s*<h([1-6])>(.*?)<\/h[1-6]>/)
+  if (hMatch) {
+    const headingText = hMatch[2].replace(/<[^>]*>/g, '').trim()
     if (headingText === chapterTitle.trim()) {
-      return html.slice(h1Match[0].length)
+      return html.slice(hMatch[0].length)
     }
   }
   return html
 }
+
+/**
+ * 根据层级深度生成章节标题 HTML
+ * depth=0 → h1 (2em), depth=1 → h2 (1.5em), depth=2 → h3 (1.25em) ...
+ */
+function prependChapterTitle(title: string, depth: number): string {
+  const level = Math.min(depth + 1, 6)
+  const sizes = ['2em', '1.5em', '1.25em', '1.1em', '1em', '0.9em']
+  const fontSize = sizes[depth] ?? '0.9em'
+  return `<h${level} style="font-size:${fontSize};font-weight:bold;color:red;margin:0.5em 0">${title}</h${level}>`
+}
+
+/** 将层级深度编码到标题中，供 TOC 模板解析 */
+function encodeDepth(title: string, depth: number): string {
+  return `D${depth}|${title}`
+}
+
+/** 自定义 toc.xhtml 模板：嵌套 ol 结构，EPUB 阅读器会显示树形展开/收起箭头 */
+const tocXHTMLTemplate = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="<%- lang %>" lang="<%- lang %>">
+<head>
+    <title><%= title %></title>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" type="text/css" href="style.css" />
+</head>
+<body>
+    <h1 class="h1"><%= tocTitle %></h1>
+    <nav id="toc" epub:type="toc">
+<% var _stack = []; %>
+<% content.forEach(function(item, index){ %>
+  <% if(!item.excludeFromToc){
+     var _t = item.title, _d = 0;
+     var _p = _t.split('|');
+     var _mm = _p[0].match(/^D(\\d+)$/);
+     if(_mm){ _d = parseInt(_mm[1]); _t = _p.slice(1).join('|'); }
+     // 回到更浅层级：关闭深层
+     while(_stack.length > _d){ %></li></ol><% _stack.pop(); } %>
+     <% // 同级：关闭前一个 li %>
+     <% if(_stack.length === _d && _stack.length > 0){ %></li><% } %>
+     <% // 进入更深层：在当前 li 内开新 ol %>
+     <% if(_d > _stack.length){ %><ol style="list-style:none"><% _stack.push(_d); } %>
+     <% // 根级：首次开 ol %>
+     <% if(_stack.length === 0){ %><ol style="list-style:none"><% _stack.push(0); } %>
+            <li class="table-of-content"><a href="<%= item.filename %>"><%= _t %></a>
+<%   } %>
+<% }) %>
+<% // 关闭所有剩余标签 %>
+<% while(_stack.length > 0){ %></li></ol><% _stack.pop(); } %>
+    </nav>
+</body>
+</html>`
+
+/** 自定义 toc.ncx 模板：嵌套 navPoint 结构，支持阅读器导航树 */
+const tocNCXTemplate = `<?xml version="1.0" encoding="UTF-8"?>
+<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
+    <head>
+        <meta name="dtb:uid" content="<%= id %>" />
+        <meta name="dtb:generator" content="epub-gen"/>
+        <meta name="dtb:depth" content="1"/>
+        <meta name="dtb:totalPageCount" content="0"/>
+        <meta name="dtb:maxPageNumber" content="0"/>
+    </head>
+    <docTitle>
+        <text><%= title %></text>
+    </docTitle>
+    <docAuthor>
+        <text><%= author %></text>
+    </docAuthor>
+    <navMap>
+<% var _idx = 0, _stack = []; %>
+<% content.forEach(function(item, index){ %>
+  <% if(!item.excludeFromToc && !item.beforeToc){
+     var _nt = item.title, _d = 0;
+     var _pp = _nt.split('|');
+     var _mm = _pp[0].match(/^D(\\d+)$/);
+     if(_mm){ _d = parseInt(_mm[1]); _nt = _pp.slice(1).join('|'); }
+     // 回到更浅层级：关闭深层 navPoint
+     while(_stack.length > _d){ %></navPoint><% _stack.pop(); } %>
+        <navPoint id="content_<%= index %>_<%= item.id %>" playOrder="<%= _idx++ %>" class="chapter">
+            <navLabel>
+                <text><%= (numberChaptersInTOC ? (1+index) + ". " : "") + _nt %></text>
+            </navLabel>
+            <content src="<%= item.filename %>"/>
+<%     _stack.push(_d); %>
+<%   } %>
+<% }) %>
+<% // 关闭所有剩余 navPoint %>
+<% while(_stack.length > 0){ %></navPoint><% _stack.pop(); } %>
+    </navMap>
+</ncx>`
 
 /**
  * 生成扉页 HTML
@@ -41,12 +133,25 @@ export async function exportToEpub(bookId: string): Promise<Blob> {
   const book = await db.books.get(bookId)
   if (!book) throw new Error('书籍不存在')
 
-  const chapters = await db.chapters
+  const allChapters = await db.chapters
     .where('bookId')
     .equals(bookId)
     .sortBy('order')
 
-  if (chapters.length === 0) throw new Error('没有章节可导出')
+  if (allChapters.length === 0) throw new Error('没有章节可导出')
+
+  // 将树形章节展平为有序列表，同时记录每个章节的层级深度
+  type FlatChapter = Chapter & { depth: number }
+  const flattenChapters = (parentId: string | null, depth: number): FlatChapter[] => {
+    const roots = allChapters.filter((c) => c.parentId === parentId).sort((a, b) => a.order - b.order)
+    const result: FlatChapter[] = []
+    for (const ch of roots) {
+      result.push({ ...ch, depth })
+      result.push(...flattenChapters(ch.id, depth + 1))
+    }
+    return result
+  }
+  const chapters = flattenChapters(null, 0)
 
   // 扉页章节（目录之前）
   const titlePageContent: Content[number] = {
@@ -58,9 +163,10 @@ export async function exportToEpub(bookId: string): Promise<Blob> {
 
   const chapterContent: Content = chapters.map((ch) => {
     const html = renderMarkdown(ch.content)
+    const bodyHtml = deduplicateChapterTitle(html, ch.title)
     return {
-      title: ch.title,
-      content: deduplicateChapterTitle(html, ch.title),
+      title: encodeDepth(ch.title, ch.depth),
+      content: prependChapterTitle(ch.title, ch.depth) + bodyHtml,
     }
   })
 
@@ -97,6 +203,8 @@ export async function exportToEpub(bookId: string): Promise<Blob> {
     tocInTOC: true,
     numberChaptersInTOC: false,
     prependChapterTitles: false,
+    tocXHTML: tocXHTMLTemplate,
+    tocNCX: tocNCXTemplate,
   }
 
   // 动态导入 epub-gen-memory，避免 CJS/fs 模块影响编辑器加载

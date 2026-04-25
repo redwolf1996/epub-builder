@@ -1,4 +1,5 @@
 <script setup lang="ts">
+  import { computed } from 'vue'
   import { NModal, NTable } from 'naive-ui'
   import { useI18n } from 'vue-i18n'
   import { renderMarkdown } from '@/utils/markdown'
@@ -13,23 +14,15 @@
 
   const { t } = useI18n()
 
-  const syntaxRows: Array<[string, string, string]> = [
-    ['# 标题', t('markdownHelp.rows.h1.desc'), t('markdownHelp.rows.h1.preview')],
-    ['## 标题', t('markdownHelp.rows.h2.desc'), t('markdownHelp.rows.h2.preview')],
-    ['### 标题', t('markdownHelp.rows.h3.desc'), t('markdownHelp.rows.h3.preview')],
-    ['**粗体**', t('markdownHelp.rows.bold.desc'), t('markdownHelp.rows.bold.preview')],
-    ['*斜体*', t('markdownHelp.rows.italic.desc'), t('markdownHelp.rows.italic.preview')],
-    ['~~删除线~~', t('markdownHelp.rows.strikethrough.desc'), t('markdownHelp.rows.strikethrough.preview')],
-    ['`行内代码`', t('markdownHelp.rows.inlineCode.desc'), t('markdownHelp.rows.inlineCode.preview')],
-    ['```语言\n代码\n```', t('markdownHelp.rows.codeBlock.desc'), t('markdownHelp.rows.codeBlock.preview')],
-    ['[链接](url)', t('markdownHelp.rows.link.desc'), t('markdownHelp.rows.link.preview')],
-    ['![图片](url)', t('markdownHelp.rows.image.desc'), t('markdownHelp.rows.image.preview')],
-    ['> 引用', t('markdownHelp.rows.quote.desc'), t('markdownHelp.rows.quote.preview')],
-    ['- 列表项', t('markdownHelp.rows.unorderedList.desc'), t('markdownHelp.rows.unorderedList.preview')],
-    ['1. 列表项', t('markdownHelp.rows.orderedList.desc'), t('markdownHelp.rows.orderedList.preview')],
-    ['---', t('markdownHelp.rows.hr.desc'), t('markdownHelp.rows.hr.preview')],
-    ['| 表头 | 表头 |', t('markdownHelp.rows.table.desc'), t('markdownHelp.rows.table.preview')],
-  ]
+  const rowKeys = ['h1', 'h2', 'h3', 'bold', 'italic', 'strikethrough', 'inlineCode', 'codeBlock', 'link', 'image', 'quote', 'unorderedList', 'orderedList', 'hr', 'table'] as const
+
+  const syntaxRows = computed<Array<[string, string, string]>>(() =>
+    rowKeys.map((key) => [
+      t(`markdownHelp.rows.${key}.syntax`),
+      t(`markdownHelp.rows.${key}.desc`),
+      t(`markdownHelp.rows.${key}.preview`),
+    ]),
+  )
 
   const renderPreview = (md: string) => renderMarkdown(md)
 </script>

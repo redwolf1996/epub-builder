@@ -36,6 +36,7 @@ export function useBook() {
     await db.chapters.add({
       id: chapterId,
       bookId: id,
+      parentId: null,
       title: '第一章',
       content: '# 第一章\n\n开始书写你的故事...',
       order: 0,

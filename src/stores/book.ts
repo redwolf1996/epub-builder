@@ -16,6 +16,7 @@ export const useBookStore = defineStore('book', () => {
     updateChapterTitle,
     deleteChapter,
     reorderChapters,
+    moveChapterToParent,
     selectChapter,
   } = useChapter()
 
@@ -64,6 +65,7 @@ export const useBookStore = defineStore('book', () => {
     renameChapter,
     deleteChapter,
     reorderChapters,
+    moveChapterToParent,
     selectChapter,
     saveCurrentChapter,
   }

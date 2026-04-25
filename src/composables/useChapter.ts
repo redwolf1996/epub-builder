@@ -24,16 +24,19 @@ export function useChapter() {
     return db.chapters.get(id)
   }
 
-  const addChapter = async (bookId: string, title: string): Promise<string> => {
+  const addChapter = async (bookId: string, title: string, parentId: string | null = null): Promise<string> => {
     const now = Date.now()
-    const maxOrder = chapters.value.length > 0
-      ? Math.max(...chapters.value.map((c) => c.order))
+    // 同级章节的 maxOrder
+    const siblings = chapters.value.filter((c) => c.parentId === parentId)
+    const maxOrder = siblings.length > 0
+      ? Math.max(...siblings.map((c) => c.order))
       : -1
 
     const id = crypto.randomUUID()
     const chapter: Chapter = {
       id,
       bookId,
+      parentId,
       title,
       content: `# ${title}\n\n`,
       order: maxOrder + 1,
@@ -73,6 +76,11 @@ export function useChapter() {
   }
 
   const deleteChapter = async (id: string) => {
+    // 递归删除子章节
+    const children = chapters.value.filter((c) => c.parentId === id)
+    for (const child of children) {
+      await deleteChapter(child.id)
+    }
     await db.chapters.delete(id)
     chapters.value = chapters.value.filter((c) => c.id !== id)
     if (currentChapter.value?.id === id) {
@@ -80,11 +88,22 @@ export function useChapter() {
     }
   }
 
-  const reorderChapters = async (orderedIds: string[]) => {
+  /** 重排同级章节 */
+  const reorderChapters = async (parentId: string | null, orderedIds: string[]) => {
     const updates = orderedIds.map((id, index) =>
-      db.chapters.update(id, { order: index, updatedAt: Date.now() })
+      db.chapters.update(id, { order: index, parentId, updatedAt: Date.now() })
     )
     await Promise.all(updates)
+    await loadChapters(chapters.value[0]?.bookId ?? '')
+  }
+
+  /** 将章节移为某个父章节的子章节 */
+  const moveChapterToParent = async (chapterId: string, parentId: string | null) => {
+    const siblings = chapters.value.filter((c) => c.parentId === parentId && c.id !== chapterId)
+    const maxOrder = siblings.length > 0
+      ? Math.max(...siblings.map((c) => c.order))
+      : -1
+    await db.chapters.update(chapterId, { parentId, order: maxOrder + 1, updatedAt: Date.now() })
     await loadChapters(chapters.value[0]?.bookId ?? '')
   }
 
@@ -103,6 +122,7 @@ export function useChapter() {
     updateChapterTitle,
     deleteChapter,
     reorderChapters,
+    moveChapterToParent,
     selectChapter,
   }
 }

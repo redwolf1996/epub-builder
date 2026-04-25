@@ -17,6 +17,7 @@ export interface Book {
 export interface Chapter {
   id: string
   bookId: string
+  parentId: string | null
   title: string
   content: string
   order: number

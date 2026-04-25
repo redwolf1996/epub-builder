@@ -73,6 +73,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - Dexie.js (IndexedDB) + Pinia
 - Tauri v2
 - 包管理器：pnpm
+- **命令执行规则**：所有包管理操作必须使用 pnpm（`pnpm add`/`pnpm exec`/`pnpm run`），禁止使用 npx/npm/yarn。执行项目内二进制时用 `pnpm exec`（如 `pnpm exec vue-tsc`）
 
 ## 代码风格
 - Script 使用单引号，不加分号

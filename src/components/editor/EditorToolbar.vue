@@ -1,6 +1,6 @@
 <script setup lang="ts">
   import { ref } from 'vue'
-  import { NButton, NButtonGroup, NTooltip } from 'naive-ui'
+  import { NButton, NButtonGroup, NTooltip, NPopover } from 'naive-ui'
   import { useI18n } from 'vue-i18n'
   import MarkdownHelp from '@/components/editor/MarkdownHelp.vue'
 
@@ -11,11 +11,18 @@
   const emit = defineEmits<{
     export: []
     ocr: []
+    fullscreen: []
   }>()
 
   export interface EditorActions {
     insertText: (text: string) => void
     wrapSelection: (before: string, after: string) => void
+    indentSelection: () => void
+    indentAll: () => void
+    dedentSelection: () => void
+    dedentAll: () => void
+    setFontSize: (size: number) => void
+    cyclePreviewTheme: () => void
   }
 
   const editorRef = defineModel<EditorActions | null>('editorRef', { required: false })
@@ -59,12 +66,65 @@
     editorRef.value?.insertText('- ')
   }
 
+  const handleIndent = () => {
+    editorRef.value?.indentSelection()
+  }
+
+  const handleIndentAll = () => {
+    editorRef.value?.indentAll()
+  }
+
+  const handleDedent = () => {
+    editorRef.value?.dedentSelection()
+  }
+
+  const handleDedentAll = () => {
+    editorRef.value?.dedentAll()
+  }
+
+  const fontSize = ref(14)
+  const handleFontSizeChange = (delta: number) => {
+    fontSize.value = Math.min(32, Math.max(10, fontSize.value + delta))
+    editorRef.value?.setFontSize(fontSize.value)
+  }
+
+  const fontColor = ref('#FF0000')
+  const bgColor = ref('#FFFF00')
+  const showFontColorPicker = ref(false)
+  const showBgColorPicker = ref(false)
+
+  const webSafeColors = [
+    '#000000', '#333333', '#666666', '#999999', '#CCCCCC', '#FFFFFF',
+    '#FF0000', '#FF6600', '#FFCC00', '#FFFF00', '#99FF00', '#00FF00',
+    '#00FF99', '#00FFFF', '#0099FF', '#0000FF', '#6600FF', '#9900FF',
+    '#FF00FF', '#FF0099', '#FF0066', '#CC3333', '#CC6600', '#CCCC00',
+    '#99CC00', '#00CC66', '#00CCCC', '#0066CC', '#3333CC', '#6600CC',
+    '#CC00CC', '#CC0066', '#FF6666', '#FFB366', '#FFFF66', '#CCFF66',
+    '#66FF66', '#66FFCC', '#66CCFF', '#6666FF', '#B366FF', '#FF66FF',
+  ]
+
+  const applyFontColor = (color: string) => {
+    fontColor.value = color
+    editorRef.value?.wrapSelection(`<span style="color:${color}">`, '</span>')
+    showFontColorPicker.value = false
+  }
+
+  const applyBgColor = (color: string) => {
+    bgColor.value = color
+    editorRef.value?.wrapSelection(`<span style="background-color:${color}">`, '</span>')
+    showBgColorPicker.value = false
+  }
+
   const handleOcr = () => {
     emit('ocr')
   }
 
   const handleExport = () => {
     emit('export')
+  }
+
+  const handleFullscreen = () => {
+    emit('fullscreen')
   }
 </script>
 
@@ -77,7 +137,7 @@
             <span class="i-carbon-heading text-sm" />
           </NButton>
         </template>
-        {{ t('toolbar.heading') }}
+        {{ t('toolbar.heading') }} (Ctrl+H)
       </NTooltip>
 
       <NTooltip trigger="hover">
@@ -86,7 +146,7 @@
             <span class="i-carbon-text-bold text-sm" />
           </NButton>
         </template>
-        {{ t('toolbar.bold') }}
+        {{ t('toolbar.bold') }} (Ctrl+B)
       </NTooltip>
 
       <NTooltip trigger="hover">
@@ -95,7 +155,7 @@
             <span class="i-carbon-text-italic text-sm" />
           </NButton>
         </template>
-        {{ t('toolbar.italic') }}
+        {{ t('toolbar.italic') }} (Ctrl+I)
       </NTooltip>
 
       <NTooltip trigger="hover">
@@ -115,6 +175,98 @@
         </template>
         {{ t('toolbar.list') }}
       </NTooltip>
+
+      <NTooltip trigger="hover">
+        <template #trigger>
+          <NButton quaternary @click="handleIndent">
+            <span class="i-carbon-text-indent-more text-sm" />
+          </NButton>
+        </template>
+        {{ t('toolbar.indent') }}
+      </NTooltip>
+
+      <NTooltip trigger="hover">
+        <template #trigger>
+          <NButton quaternary @click="handleIndentAll">
+            <span class="i-carbon-text-align-justify text-sm" />
+          </NButton>
+        </template>
+        {{ t('toolbar.indentAll') }}
+      </NTooltip>
+
+      <NTooltip trigger="hover">
+        <template #trigger>
+          <NButton quaternary @click="handleDedent">
+            <span class="i-carbon-text-indent-less text-sm" />
+          </NButton>
+        </template>
+        {{ t('toolbar.dedent') }}
+      </NTooltip>
+
+      <NTooltip trigger="hover">
+        <template #trigger>
+          <NButton quaternary @click="handleDedentAll">
+            <span class="i-carbon-text-align-left text-sm" />
+          </NButton>
+        </template>
+        {{ t('toolbar.dedentAll') }}
+      </NTooltip>
+
+      <NTooltip trigger="hover">
+        <template #trigger>
+          <NButtonGroup size="tiny">
+            <NButton quaternary @click="handleFontSizeChange(-1)">
+              <span class="text-xs font-bold">A-</span>
+            </NButton>
+            <NButton quaternary @click="handleFontSizeChange(1)">
+              <span class="text-sm font-bold">A+</span>
+            </NButton>
+          </NButtonGroup>
+        </template>
+        {{ t('toolbar.fontSize') }}
+      </NTooltip>
+
+      <NPopover v-model:show="showFontColorPicker" trigger="click" placement="bottom">
+        <template #trigger>
+          <NTooltip trigger="hover">
+            <template #trigger>
+              <NButton quaternary>
+                <span class="i-carbon-paint-brush text-sm" style="color: v-bind(fontColor)" />
+              </NButton>
+            </template>
+            {{ t('toolbar.fontColor') }}
+          </NTooltip>
+        </template>
+        <div class="color-grid">
+          <div v-for="c in webSafeColors" :key="c" class="color-swatch" :style="{ backgroundColor: c }"
+            @click="applyFontColor(c)" />
+          <label class="color-swatch color-swatch-custom" title="自定义颜色">
+            <input type="color" :value="fontColor"
+              @input="(e: Event) => applyFontColor((e.target as HTMLInputElement).value)" />
+          </label>
+        </div>
+      </NPopover>
+
+      <NPopover v-model:show="showBgColorPicker" trigger="click" placement="bottom">
+        <template #trigger>
+          <NTooltip trigger="hover">
+            <template #trigger>
+              <NButton quaternary>
+                <span class="i-carbon-color-palette text-sm" style="color: v-bind(bgColor)" />
+              </NButton>
+            </template>
+            {{ t('toolbar.bgColor') }}
+          </NTooltip>
+        </template>
+        <div class="color-grid">
+          <div v-for="c in webSafeColors" :key="c" class="color-swatch" :style="{ backgroundColor: c }"
+            @click="applyBgColor(c)" />
+          <label class="color-swatch color-swatch-custom" title="自定义颜色">
+            <input type="color" :value="bgColor"
+              @input="(e: Event) => applyBgColor((e.target as HTMLInputElement).value)" />
+          </label>
+        </div>
+      </NPopover>
 
       <NTooltip trigger="hover">
         <template #trigger>
@@ -171,6 +323,24 @@
       {{ t('editor.markdownHelp') }}
     </NTooltip>
 
+    <NTooltip trigger="hover">
+      <template #trigger>
+        <NButton quaternary size="tiny" @click="handleFullscreen">
+          <span class="i-carbon-maximize text-sm" />
+        </NButton>
+      </template>
+      {{ t('editor.fullscreen') }} (F11)
+    </NTooltip>
+
+    <NTooltip trigger="hover">
+      <template #trigger>
+        <NButton quaternary size="tiny" @click="editorRef?.cyclePreviewTheme?.()">
+          <span class="i-carbon-screen text-sm" />
+        </NButton>
+      </template>
+      {{ t('editor.previewTheme') }}
+    </NTooltip>
+
     <div class="flex-1" />
 
     <NButton type="primary" size="small" :loading="props.exporting" @click="handleExport">
@@ -187,5 +357,41 @@
     border-bottom: 1px solid var(--border-color);
     background: var(--bg-surface);
     backdrop-filter: blur(12px);
+  }
+
+  .color-grid {
+    display: grid;
+    grid-template-columns: repeat(6, 22px);
+    gap: 4px;
+    padding: 4px;
+  }
+
+  .color-swatch {
+    width: 22px;
+    height: 22px;
+    border-radius: 4px;
+    cursor: pointer;
+    border: 1px solid rgba(128, 128, 128, 0.3);
+    transition: transform 0.1s;
+  }
+
+  .color-swatch:hover {
+    transform: scale(1.2);
+    z-index: 1;
+  }
+
+  .color-swatch-custom {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: conic-gradient(red, yellow, lime, aqua, blue, magenta, red);
+    overflow: hidden;
+  }
+
+  .color-swatch-custom input {
+    opacity: 0;
+    width: 100%;
+    height: 100%;
+    cursor: pointer;
   }
 </style>

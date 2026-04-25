@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import { onMounted, ref, watch } from 'vue'
+  import { onMounted, onBeforeUnmount, ref, watch, computed } from 'vue'
   import { useRoute, useRouter } from 'vue-router'
   import { useI18n } from 'vue-i18n'
   import { NButton, NInput, NScrollbar, NModal, useMessage } from 'naive-ui'
@@ -24,6 +24,8 @@
 
   const editorActions = ref<EditorActions | null>(null)
   const cmEditorRef = ref<InstanceType<typeof CodeMirrorEditor> | null>(null)
+  const previewRef = ref<InstanceType<typeof MarkdownPreview> | null>(null)
+  const syncScroll = ref(true)
   const showAddChapter = ref(false)
   const newChapterTitle = ref('')
   const addChapterParentId = ref<string | null>(null)
@@ -31,6 +33,8 @@
   const editingTitle = ref('')
   const isMobile = ref(window.innerWidth < 768)
   const collapsedIds = ref<Set<string>>(new Set())
+  const chapterSearch = ref('')
+  const isFullscreen = ref(false)
 
   // 拖拽分割线宽度（持久化）
   const sidebarWidth = ref(Number(localStorage.getItem('editor-sidebar-width')) || 240)
@@ -101,6 +105,7 @@
   onMounted(async () => {
     await bookStore.openBook(bookId)
     window.addEventListener('resize', handleResize)
+    window.addEventListener('keydown', handleKeydown)
   })
 
   // 将 CodeMirrorEditor 暴露的方法传递给 toolbar
@@ -109,6 +114,12 @@
       editorActions.value = {
         insertText: (text: string) => cm.insertText(text),
         wrapSelection: (before: string, after: string) => cm.wrapSelection(before, after),
+        indentSelection: () => cm.indentSelection(),
+        indentAll: () => cm.indentAll(),
+        dedentSelection: () => cm.dedentSelection(),
+        dedentAll: () => cm.dedentAll(),
+        setFontSize: (size: number) => cm.setFontSize(size),
+        cyclePreviewTheme: () => previewRef.value?.cycleTheme(),
       }
     }
   }, { immediate: true })
@@ -117,6 +128,22 @@
     isMobile.value = window.innerWidth < 768
   }
 
+  const toggleFullscreen = () => {
+    isFullscreen.value = !isFullscreen.value
+  }
+
+  const handleKeydown = (e: KeyboardEvent) => {
+    if (e.key === 'F11') {
+      e.preventDefault()
+      toggleFullscreen()
+    }
+  }
+
+  onBeforeUnmount(() => {
+    window.removeEventListener('resize', handleResize)
+    window.removeEventListener('keydown', handleKeydown)
+  })
+
   const handleBack = () => {
     router.push('/')
   }
@@ -124,8 +151,15 @@
   const handleSelectChapter = (chapterId: string) => {
     const chapter = bookStore.chapters.find((c) => c.id === chapterId)
     if (chapter) {
+      // 先保存旧章节的 pending 内容（此时 currentChapter 还是旧的）
+      editorStore.flushSave()
+      editorStore.cancelPendingSave()
+      // 再切换章节
       bookStore.selectChapter(chapter)
       editorStore.loadChapterContent(chapter.content)
+      cmEditorRef.value?.loadContent(chapter.content)
+      // 持久化当前章节
+      localStorage.setItem(`editor-chapter-${bookId}`, chapter.id)
     }
   }
 
@@ -155,6 +189,13 @@
   const onChapterSortEnd = async (parentId: string | null, orderedIds: string[]) => {
     await bookStore.reorderChapters(parentId, orderedIds)
   }
+
+  // 章节搜索过滤
+  const filteredChapters = computed(() => {
+    const keyword = chapterSearch.value.trim().toLowerCase()
+    if (!keyword) return localChapters.value
+    return localChapters.value.filter((c) => c.title.toLowerCase().includes(keyword))
+  })
 
   // 本地可拖拽章节列表（VueDraggable 需要 v-model 可写）
   const localChapters = ref<Chapter[]>([])
@@ -224,6 +265,12 @@
     editorStore.setContent(value)
   }
 
+  const handleEditorScroll = (ratio: number) => {
+    if (syncScroll.value) {
+      previewRef.value?.scrollToRatio(ratio)
+    }
+  }
+
   const ocrProcessing = ref(false)
 
   const handleOcr = async () => {
@@ -269,14 +316,17 @@
     () => bookStore.currentChapter,
     (chapter) => {
       if (chapter) {
+        editorStore.flushSave()
+        editorStore.cancelPendingSave()
         editorStore.loadChapterContent(chapter.content)
+        cmEditorRef.value?.loadContent(chapter.content)
       }
     },
   )
 </script>
 
 <template>
-  <div class="editor-page h-full flex">
+  <div class="editor-page h-full flex" :class="{ 'is-fullscreen': isFullscreen }">
     <!-- 左侧章节面板 -->
     <aside
       v-if="!isMobile"
@@ -292,11 +342,20 @@
         </NButton>
       </div>
 
+      <!-- 章节搜索 -->
+      <div class="px-2 py-1 shrink-0" style="border-bottom: 1px solid var(--border-color)">
+        <NInput v-model:value="chapterSearch" size="tiny" :placeholder="t('editor.searchChapter')" clearable>
+          <template #prefix>
+            <span class="i-carbon-search text-xs" style="color: var(--text-muted)" />
+          </template>
+        </NInput>
+      </div>
+
       <NScrollbar class="flex-1">
         <div class="p-2">
           <ChapterNode
             :parent-id="null"
-            :chapters="localChapters"
+            :chapters="chapterSearch.trim() ? filteredChapters : localChapters"
             :current-chapter-id="bookStore.currentChapter?.id"
             :editing-chapter-id="editingChapterId"
             :editing-title="editingTitle"
@@ -339,7 +398,7 @@
     <!-- 主编辑区 -->
     <main class="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden" @click="handleEditorAreaClick">
       <!-- 工具栏 -->
-      <EditorToolbar :editor-ref="editorActions" :exporting="exporting" @export="handleExport" @ocr="handleOcr" />
+      <EditorToolbar :editor-ref="editorActions" :exporting="exporting" @export="handleExport" @ocr="handleOcr" @fullscreen="toggleFullscreen" />
 
       <!-- 编辑器 + 预览 分屏 -->
       <div ref="splitContainerRef" class="split-container flex-1 flex min-h-0 overflow-hidden">
@@ -347,7 +406,7 @@
         <div class="min-h-0 overflow-hidden" :style="{ width: isMobile ? '100%' : (editorRatio * 100) + '%' }"
           :class="{ hidden: isMobile && editorStore.previewMode }">
           <CodeMirrorEditor ref="cmEditorRef" :model-value="editorStore.content"
-            @update:model-value="handleContentChange" />
+            @update:model-value="handleContentChange" @scroll="handleEditorScroll" />
         </div>
 
         <!-- 编辑器/预览 分割线 -->
@@ -356,8 +415,26 @@
         <!-- 预览 -->
         <div class="min-h-0 overflow-hidden" :style="{ width: isMobile ? '100%' : ((1 - editorRatio) * 100) + '%' }"
           :class="{ hidden: isMobile && !editorStore.previewMode }">
-          <MarkdownPreview :content="editorStore.content" />
+          <MarkdownPreview ref="previewRef" :content="editorStore.content" />
         </div>
+      </div>
+
+      <!-- 底部状态栏 -->
+      <div class="editor-statusbar flex items-center justify-between px-3 shrink-0"
+        style="height: 24px; border-top: 1px solid var(--border-color)">
+        <span class="text-xs" style="color: var(--text-muted)">
+          {{ t('editor.wordCount', { count: editorStore.wordCount }) }} · {{ t('editor.charCount', {
+            count:
+              editorStore.charCount
+          }) }}
+        </span>
+        <span class="text-xs" :class="{ 'save-saving': editorStore.saveStatus === 'saving' || editorStore.saveStatus === 'dirty' }"
+          style="color: var(--text-muted)">
+          <template v-if="editorStore.saveStatus === 'idle'">{{ t('editor.saveIdle') }}</template>
+          <template v-else-if="editorStore.saveStatus === 'dirty'">{{ t('editor.saveDirty') }}</template>
+          <template v-else-if="editorStore.saveStatus === 'saving'">{{ t('editor.saveSaving') }}</template>
+          <template v-else>{{ t('editor.saveSaved') }}</template>
+        </span>
       </div>
 
       <!-- 手机端底部切换 -->
@@ -420,5 +497,35 @@
 
   .resize-handle:hover {
     background: var(--primary);
+  }
+
+  .save-saving {
+    animation: save-pulse 1s ease-in-out infinite;
+  }
+
+  .is-fullscreen {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+  }
+
+  .is-fullscreen .chapter-sidebar {
+    display: none;
+  }
+
+  .is-fullscreen .resize-handle:first-of-type {
+    display: none;
+  }
+
+  @keyframes save-pulse {
+
+    0%,
+    100% {
+      opacity: 1;
+    }
+
+    50% {
+      opacity: 0.4;
+    }
   }
 </style>

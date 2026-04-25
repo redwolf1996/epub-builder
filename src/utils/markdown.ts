@@ -56,7 +56,16 @@ const md = new MarkdownIt({
 })
 
 export function renderMarkdown(content: string): string {
-  return md.render(content)
+  // 预处理：将行首全角空格（U+3000）转为 &emsp; 实体，避免被 markdown-it 丢弃
+  const preprocessed = content.replace(/^(\u3000+)/gm, (spaces: string) => {
+    return '&emsp;'.repeat(spaces.length)
+  })
+  let html = md.render(preprocessed)
+  // 后处理：将 <p> 开头的 em-space（U+2003）转为 CSS text-indent
+  html = html.replace(/<p>(\u2003+)/g, (_match, spaces: string) => {
+    return `<p style="text-indent:${spaces.length}em">`
+  })
+  return html
 }
 
 export function extractTitle(content: string): string {

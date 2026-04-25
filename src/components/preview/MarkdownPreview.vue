@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import { computed } from 'vue'
+  import { computed, ref } from 'vue'
   import { renderMarkdown } from '@/utils/markdown'
 
   const props = defineProps<{
@@ -7,10 +7,27 @@
   }>()
 
   const html = computed(() => renderMarkdown(props.content))
+  const previewRef = ref<HTMLElement | null>(null)
+
+  const previewTheme = ref<'default' | 'parchment' | 'sepia'>('default')
+
+  const scrollToRatio = (ratio: number) => {
+    if (!previewRef.value) return
+    const maxScroll = previewRef.value.scrollHeight - previewRef.value.clientHeight
+    previewRef.value.scrollTop = ratio * maxScroll
+  }
+
+  const cycleTheme = () => {
+    const themes: Array<'default' | 'parchment' | 'sepia'> = ['default', 'parchment', 'sepia']
+    const idx = themes.indexOf(previewTheme.value)
+    previewTheme.value = themes[(idx + 1) % themes.length]
+  }
+
+  defineExpose({ scrollToRatio, cycleTheme, previewTheme })
 </script>
 
 <template>
-  <div class="markdown-preview h-full overflow-auto p-6" v-html="html" />
+  <div ref="previewRef" class="markdown-preview h-full overflow-auto p-6" :class="'theme-' + previewTheme" v-html="html" />
 </template>
 
 <style>
@@ -141,5 +158,55 @@
 
   .markdown-preview em {
     color: var(--primary-light);
+  }
+
+  .markdown-preview.theme-parchment {
+    background: #f5e6c8;
+    color: #3c2f1e;
+  }
+
+  .markdown-preview.theme-parchment h1,
+  .markdown-preview.theme-parchment h2,
+  .markdown-preview.theme-parchment h3 {
+    -webkit-text-fill-color: unset;
+    color: #5c3d1e;
+  }
+
+  .markdown-preview.theme-parchment blockquote {
+    border-left-color: #8b6914;
+    background: rgba(139, 105, 20, 0.08);
+  }
+
+  .markdown-preview.theme-parchment code {
+    background: rgba(60, 47, 30, 0.1);
+  }
+
+  .markdown-preview.theme-parchment a {
+    color: #8b6914;
+  }
+
+  .markdown-preview.theme-sepia {
+    background: #f0e4d4;
+    color: #4a3c2a;
+  }
+
+  .markdown-preview.theme-sepia h1,
+  .markdown-preview.theme-sepia h2,
+  .markdown-preview.theme-sepia h3 {
+    -webkit-text-fill-color: unset;
+    color: #6b4c2a;
+  }
+
+  .markdown-preview.theme-sepia blockquote {
+    border-left-color: #a0784c;
+    background: rgba(160, 120, 76, 0.08);
+  }
+
+  .markdown-preview.theme-sepia code {
+    background: rgba(74, 60, 42, 0.1);
+  }
+
+  .markdown-preview.theme-sepia a {
+    color: #a0784c;
   }
 </style>

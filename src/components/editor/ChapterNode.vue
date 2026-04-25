@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import { computed, h } from 'vue'
+  import { computed, h, ref } from 'vue'
   import { NButton, NDropdown, NInput, useDialog } from 'naive-ui'
   import { VueDraggable } from 'vue-draggable-plus'
   import type { Chapter } from '@/types'
@@ -60,6 +60,25 @@
 
   const dialog = useDialog()
 
+  const contextMenuX = ref(0)
+  const contextMenuY = ref(0)
+  const contextChapter = ref<Chapter | null>(null)
+  const showContextMenu = ref(false)
+
+  const handleContextMenu = (e: MouseEvent, chapter: Chapter) => {
+    e.preventDefault()
+    contextChapter.value = chapter
+    contextMenuX.value = e.clientX
+    contextMenuY.value = e.clientY
+    showContextMenu.value = true
+  }
+
+  const handleContextSelect = (key: string) => {
+    if (!contextChapter.value) return
+    handleAction(key, contextChapter.value)
+    showContextMenu.value = false
+  }
+
   const handleAction = (key: string, chapter: Chapter) => {
     if (key === 'addSub') emit('addSub', chapter.id)
     else if (key === 'promote') emit('promote', chapter.id)
@@ -81,12 +100,15 @@
     :animation="150"
     handle=".drag-handle"
     group="chapters"
+    ghost-class="chapter-ghost"
+    drag-class="chapter-drag"
     class="flex flex-col gap-1"
     :class="{ 'ml-4': parentId !== null }">
     <div v-for="chapter in chapterList" :key="chapter.id">
       <div
         class="chapter-item flex items-center gap-2 px-3 py-2 rounded transition-all"
-        :class="{ active: currentChapterId === chapter.id }">
+        :class="{ active: currentChapterId === chapter.id }"
+        @contextmenu="handleContextMenu($event, chapter)">
         <button
           v-if="getChildren(chapter.id).length > 0"
           class="collapse-btn shrink-0"
@@ -116,7 +138,7 @@
             @click="emit('select', chapter)"
             @dblclick="emit('renameStart', chapter)">{{ chapter.title }}</span>
         </template>
-        <NDropdown :options="getActionOptions(chapter)" trigger="hover" placement="bottom-end"
+        <NDropdown :options="getActionOptions(chapter)" trigger="click" placement="bottom-end"
           @select="handleAction($event, chapter)">
           <NButton quaternary size="tiny" @click.stop class="action-btn">
             <span class="i-carbon-overflow-menu-horizontal text-xs" />
@@ -136,6 +158,17 @@
         @toggle-collapse="emit('toggleCollapse', $event)" />
     </div>
   </VueDraggable>
+
+  <!-- 右键菜单 -->
+  <NDropdown
+    placement="bottom-start"
+    trigger="manual"
+    :x="contextMenuX"
+    :y="contextMenuY"
+    :options="contextChapter ? getActionOptions(contextChapter) : []"
+    :show="showContextMenu"
+    @select="handleContextSelect"
+    @clickoutside="showContextMenu = false" />
 </template>
 
 <style scoped>
@@ -187,5 +220,16 @@
 
   .chapter-item:hover .action-btn {
     opacity: 1;
+  }
+
+  .chapter-ghost {
+    opacity: 0;
+  }
+
+  .chapter-drag {
+    opacity: 0.8;
+    background: var(--bg-active);
+    border-radius: 6px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
   }
 </style>

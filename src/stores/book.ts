@@ -32,7 +32,18 @@ export const useBookStore = defineStore('book', () => {
     activeBook.value = book
     await loadChapters(bookId)
     if (chapters.value.length > 0) {
-      selectChapter(chapters.value[0])
+      // 优先恢复上次编辑的章节
+      const lastChapterId = localStorage.getItem(`editor-chapter-${bookId}`)
+      const lastChapter = lastChapterId ? chapters.value.find((c) => c.id === lastChapterId) : null
+      if (lastChapter) {
+        selectChapter(lastChapter)
+      } else {
+        // 默认选中第一个顶级章节
+        const topLevel = chapters.value
+          .filter((c) => !c.parentId)
+          .sort((a, b) => a.order - b.order)
+        selectChapter(topLevel[0] ?? chapters.value[0])
+      }
     }
   }
 

@@ -26,6 +26,7 @@ export default {
     chapterDeleted: '章节已删除',
     confirmDeleteChapter: '确定删除此章节？',
     titleEmpty: '章节标题不能为空',
+    renamePlaceholder: '请输入章节标题',
     backToShelf: '返回书架',
     exportEpub: '导出 EPUB',
     exporting: '导出中...',

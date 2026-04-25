@@ -26,6 +26,7 @@ export default {
     chapterDeleted: 'Chapter deleted',
     confirmDeleteChapter: 'Delete this chapter?',
     titleEmpty: 'Chapter title cannot be empty',
+    renamePlaceholder: 'Enter chapter title',
     backToShelf: 'Back to Shelf',
     exportEpub: 'Export EPUB',
     exporting: 'Exporting...',

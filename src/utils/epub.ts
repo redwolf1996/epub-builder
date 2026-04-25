@@ -26,7 +26,7 @@ function prependChapterTitle(title: string, depth: number): string {
   const level = Math.min(depth + 1, 6)
   const sizes = ['2em', '1.5em', '1.25em', '1.1em', '1em', '0.9em']
   const fontSize = sizes[depth] ?? '0.9em'
-  return `<h${level} style="font-size:${fontSize};font-weight:bold;color:red;margin:0.5em 0">${title}</h${level}>`
+  return `<h${level} style="font-size:${fontSize};font-weight:bold;color:#00aa44;margin:0.5em 0">${title}</h${level}>`
 }
 
 /** 将层级深度编码到标题中，供 TOC 模板解析 */

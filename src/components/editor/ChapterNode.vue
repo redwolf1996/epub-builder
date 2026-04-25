@@ -9,6 +9,7 @@
     chapters: Chapter[]
     currentChapterId?: string
     editingChapterId: string | null
+    editingTitle: string
     collapsedIds: Set<string>
     deleteConfirmText: string
     addSubText: string
@@ -16,6 +17,7 @@
     deleteText: string
     confirmText: string
     cancelText: string
+    renamePlaceholder: string
   }>()
 
   const emit = defineEmits<{
@@ -23,6 +25,7 @@
     renameStart: [chapter: Chapter]
     renameConfirm: []
     renameCancel: []
+    renameInput: [value: string]
     addSub: [parentId: string]
     promote: [chapterId: string]
     delete: [chapterId: string]
@@ -61,7 +64,8 @@
           v-if="getChildren(chapter.id).length > 0"
           class="collapse-btn shrink-0"
           @click.stop="emit('toggleCollapse', chapter.id)">
-          <span class="i-carbon-chevron-right transition-transform" :class="{ 'rotate-90': !isCollapsed(chapter.id) }" />
+          <span class="i-carbon-chevron-right transition-transform"
+            :class="{ 'rotate-90': !isCollapsed(chapter.id) }" />
         </button>
         <span v-else class="shrink-0" style="width: 16px" />
         <span
@@ -72,6 +76,9 @@
             size="tiny"
             autofocus
             class="flex-1"
+            :value="editingTitle"
+            :placeholder="renamePlaceholder"
+            @update:value="emit('renameInput', $event)"
             @keyup.enter="emit('renameConfirm')"
             @keyup.escape="emit('renameCancel')"
             @blur="emit('renameConfirm')" />
@@ -98,7 +105,8 @@
           </template>
           {{ promoteText }}
         </NTooltip>
-        <NPopconfirm :positive-text="confirmText" :negative-text="cancelText" @positive-click="emit('delete', chapter.id)">
+        <NPopconfirm :positive-text="confirmText" :negative-text="cancelText"
+          @positive-click="emit('delete', chapter.id)">
           <template #trigger>
             <NTooltip>
               <template #trigger>
@@ -112,26 +120,15 @@
           {{ deleteConfirmText }}
         </NPopconfirm>
       </div>
-      <ChapterNode
-        v-if="getChildren(chapter.id).length > 0 && !isCollapsed(chapter.id)"
-        :parent-id="chapter.id"
-        :chapters="chapters"
-        :current-chapter-id="currentChapterId"
-        :editing-chapter-id="editingChapterId"
-        :collapsed-ids="collapsedIds"
-        :delete-confirm-text="deleteConfirmText"
-        :add-sub-text="addSubText"
-        :promote-text="promoteText"
-        :delete-text="deleteText"
-        :confirm-text="confirmText"
-        :cancel-text="cancelText"
-        @select="emit('select', $event)"
-        @rename-start="emit('renameStart', $event)"
-        @rename-confirm="emit('renameConfirm')"
-        @rename-cancel="emit('renameCancel')"
+      <ChapterNode v-if="getChildren(chapter.id).length > 0 && !isCollapsed(chapter.id)" :parent-id="chapter.id"
+        :chapters="chapters" :current-chapter-id="currentChapterId" :editing-chapter-id="editingChapterId"
+        :editing-title="editingTitle" :collapsed-ids="collapsedIds" :delete-confirm-text="deleteConfirmText"
+        :add-sub-text="addSubText" :promote-text="promoteText" :delete-text="deleteText" :confirm-text="confirmText"
+        :cancel-text="cancelText" :rename-placeholder="renamePlaceholder" @select="emit('select', $event)"
+        @rename-start="emit('renameStart', $event)" @rename-confirm="emit('renameConfirm')"
+        @rename-cancel="emit('renameCancel')" @rename-input="emit('renameInput', $event)"
         @add-sub="emit('addSub', $event)"
-        @promote="emit('promote', $event)"
-        @delete="emit('delete', $event)"
+        @promote="emit('promote', $event)" @delete="emit('delete', $event)"
         @reorder="(p: string | null, ids: string[]) => emit('reorder', p, ids)"
         @toggle-collapse="emit('toggleCollapse', $event)" />
     </div>
@@ -142,32 +139,40 @@
   .chapter-item {
     color: var(--text-secondary);
   }
+
   .chapter-item:hover {
     background: var(--bg-hover);
     color: var(--text-primary);
   }
+
   .chapter-item.active {
     background: var(--bg-active);
     color: var(--primary);
     font-weight: 500;
   }
+
   .chapter-item:hover .n-button {
     opacity: 1;
   }
+
   .drag-handle {
     opacity: 0.4;
     transition: opacity 0.2s;
   }
+
   .chapter-item:hover .drag-handle {
     opacity: 1;
   }
+
   .delete-btn {
     opacity: 0;
     transition: opacity 0.2s;
   }
+
   .chapter-item:hover .delete-btn {
     opacity: 1;
   }
+
   .collapse-btn {
     width: 16px;
     height: 24px;
@@ -180,10 +185,12 @@
     background: none;
     padding: 0;
   }
+
   .action-btn {
     opacity: 0;
     transition: opacity 0.2s;
   }
+
   .chapter-item:hover .action-btn {
     opacity: 1;
   }

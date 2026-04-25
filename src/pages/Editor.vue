@@ -265,10 +265,31 @@
     editorStore.setContent(value)
   }
 
-  const handleEditorScroll = (ratio: number) => {
-    if (syncScroll.value) {
-      previewRef.value?.scrollToRatio(ratio)
-    }
+  // 滚动同步：防止循环触发
+  let scrollSource: 'editor' | 'preview' | null = null
+  let scrollTimer: ReturnType<typeof setTimeout> | null = null
+
+  const clearScrollSource = () => {
+    scrollSource = null
+    scrollTimer = null
+  }
+
+  const handleEditorScroll = (info: { line: number; offsetY: number }) => {
+    if (!syncScroll.value) return
+    if (scrollSource === 'preview') return
+    scrollSource = 'editor'
+    if (scrollTimer) clearTimeout(scrollTimer)
+    scrollTimer = setTimeout(clearScrollSource, 50)
+    previewRef.value?.scrollToLine(info.line, info.offsetY)
+  }
+
+  const handlePreviewScroll = (line: number) => {
+    if (!syncScroll.value) return
+    if (scrollSource === 'editor') return
+    scrollSource = 'preview'
+    if (scrollTimer) clearTimeout(scrollTimer)
+    scrollTimer = setTimeout(clearScrollSource, 50)
+    cmEditorRef.value?.scrollToLine(line)
   }
 
   const ocrProcessing = ref(false)
@@ -353,30 +374,16 @@
 
       <NScrollbar class="flex-1">
         <div class="p-2">
-          <ChapterNode
-            :parent-id="null"
-            :chapters="chapterSearch.trim() ? filteredChapters : localChapters"
-            :current-chapter-id="bookStore.currentChapter?.id"
-            :editing-chapter-id="editingChapterId"
-            :editing-title="editingTitle"
-            :collapsed-ids="collapsedIds"
-            :delete-confirm-text="t('editor.confirmDeleteChapter')"
-            :add-sub-text="t('editor.addSubChapter')"
-            :promote-text="t('editor.promoteChapter')"
-            :delete-text="t('editor.deleteChapter')"
-            :confirm-text="t('editor.confirm')"
-            :cancel-text="t('editor.cancel')"
-            :rename-placeholder="t('editor.renamePlaceholder')"
-            @select="handleChapterClick"
-            @rename-start="handleChapterDblClick"
-            @rename-confirm="confirmRename"
-            @rename-cancel="cancelRename"
-            @rename-input="editingTitle = $event"
-            @add-sub="handleAddSubChapter"
-            @promote="handlePromoteChapter"
-            @delete="handleDeleteChapter"
-            @reorder="onChapterSortEnd"
-            @toggle-collapse="toggleCollapse" />
+          <ChapterNode :parent-id="null" :chapters="chapterSearch.trim() ? filteredChapters : localChapters"
+            :current-chapter-id="bookStore.currentChapter?.id" :editing-chapter-id="editingChapterId"
+            :editing-title="editingTitle" :collapsed-ids="collapsedIds"
+            :delete-confirm-text="t('editor.confirmDeleteChapter')" :add-sub-text="t('editor.addSubChapter')"
+            :promote-text="t('editor.promoteChapter')" :delete-text="t('editor.deleteChapter')"
+            :confirm-text="t('editor.confirm')" :cancel-text="t('editor.cancel')"
+            :rename-placeholder="t('editor.renamePlaceholder')" @select="handleChapterClick"
+            @rename-start="handleChapterDblClick" @rename-confirm="confirmRename" @rename-cancel="cancelRename"
+            @rename-input="editingTitle = $event" @add-sub="handleAddSubChapter" @promote="handlePromoteChapter"
+            @delete="handleDeleteChapter" @reorder="onChapterSortEnd" @toggle-collapse="toggleCollapse" />
           <div v-if="bookStore.chapters.length === 0" class="text-center text-sm py-8" style="color: var(--text-muted)">
             <span class="i-carbon-document-blank text-2xl block mb-2" />
             {{ t('editor.noChapters') }}
@@ -398,7 +405,8 @@
     <!-- 主编辑区 -->
     <main class="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden" @click="handleEditorAreaClick">
       <!-- 工具栏 -->
-      <EditorToolbar :editor-ref="editorActions" :exporting="exporting" @export="handleExport" @ocr="handleOcr" @fullscreen="toggleFullscreen" />
+      <EditorToolbar :editor-ref="editorActions" :exporting="exporting" @export="handleExport" @ocr="handleOcr"
+        @fullscreen="toggleFullscreen" />
 
       <!-- 编辑器 + 预览 分屏 -->
       <div ref="splitContainerRef" class="split-container flex-1 flex min-h-0 overflow-hidden">
@@ -406,7 +414,8 @@
         <div class="min-h-0 overflow-hidden" :style="{ width: isMobile ? '100%' : (editorRatio * 100) + '%' }"
           :class="{ hidden: isMobile && editorStore.previewMode }">
           <CodeMirrorEditor ref="cmEditorRef" :model-value="editorStore.content"
-            @update:model-value="handleContentChange" @scroll="handleEditorScroll" />
+            @update:model-value="handleContentChange"
+            @scroll="handleEditorScroll" />
         </div>
 
         <!-- 编辑器/预览 分割线 -->
@@ -415,7 +424,7 @@
         <!-- 预览 -->
         <div class="min-h-0 overflow-hidden" :style="{ width: isMobile ? '100%' : ((1 - editorRatio) * 100) + '%' }"
           :class="{ hidden: isMobile && !editorStore.previewMode }">
-          <MarkdownPreview ref="previewRef" :content="editorStore.content" />
+          <MarkdownPreview ref="previewRef" :content="editorStore.content" @scroll="handlePreviewScroll" />
         </div>
       </div>
 
@@ -428,7 +437,8 @@
               editorStore.charCount
           }) }}
         </span>
-        <span class="text-xs" :class="{ 'save-saving': editorStore.saveStatus === 'saving' || editorStore.saveStatus === 'dirty' }"
+        <span class="text-xs"
+          :class="{ 'save-saving': editorStore.saveStatus === 'saving' || editorStore.saveStatus === 'dirty' }"
           style="color: var(--text-muted)">
           <template v-if="editorStore.saveStatus === 'idle'">{{ t('editor.saveIdle') }}</template>
           <template v-else-if="editorStore.saveStatus === 'dirty'">{{ t('editor.saveDirty') }}</template>

@@ -1,9 +1,13 @@
 <script setup lang="ts">
-  import { computed, ref } from 'vue'
+  import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
   import { renderMarkdown } from '@/utils/markdown'
 
   const props = defineProps<{
     content: string
+  }>()
+
+  const emit = defineEmits<{
+    'scroll': [line: number]
   }>()
 
   const html = computed(() => renderMarkdown(props.content))
@@ -11,10 +15,62 @@
 
   const previewTheme = ref<'default' | 'parchment' | 'sepia'>('default')
 
-  const scrollToRatio = (ratio: number) => {
+  const scrollToLine = (line: number, offsetY = 0) => {
     if (!previewRef.value) return
-    const maxScroll = previewRef.value.scrollHeight - previewRef.value.clientHeight
-    previewRef.value.scrollTop = ratio * maxScroll
+    // 查找 data-line 匹配的元素，找不到则取最近的
+    let el = previewRef.value.querySelector(`[data-line="${line}"]`) as HTMLElement | null
+    if (!el) {
+      el = findClosestElement(line)
+    }
+    if (el) {
+      const containerRect = previewRef.value.getBoundingClientRect()
+      const elRect = el.getBoundingClientRect()
+      const elOffsetFromTop = elRect.top - containerRect.top + previewRef.value.scrollTop
+      // 将元素定位到与编辑器相同的偏移位置
+      previewRef.value.scrollTop = elOffsetFromTop - offsetY
+    }
+  }
+
+  const findClosestElement = (line: number): HTMLElement | null => {
+    if (!previewRef.value) return null
+    const elements = previewRef.value.querySelectorAll('[data-line]')
+    let closest: HTMLElement | null = null
+    let minDiff = Infinity
+    for (const el of elements) {
+      const elLine = Number((el as HTMLElement).dataset.line)
+      const diff = Math.abs(elLine - line)
+      if (diff < minDiff) {
+        closest = el as HTMLElement
+        minDiff = diff
+      }
+    }
+    return closest
+  }
+
+  const getVisibleLine = (): number => {
+    if (!previewRef.value) return 0
+    const containerTop = previewRef.value.getBoundingClientRect().top
+    const containerBottom = previewRef.value.getBoundingClientRect().bottom
+    const elements = previewRef.value.querySelectorAll('[data-line]')
+    for (const el of elements) {
+      const rect = (el as HTMLElement).getBoundingClientRect()
+      if (rect.top >= containerTop && rect.top < containerBottom) {
+        return Number((el as HTMLElement).dataset.line)
+      }
+      if (rect.bottom > containerTop && rect.top < containerTop) {
+        return Number((el as HTMLElement).dataset.line)
+      }
+    }
+    return 0
+  }
+
+  let scrollRafId = 0
+  const onScroll = () => {
+    if (scrollRafId) return
+    scrollRafId = requestAnimationFrame(() => {
+      scrollRafId = 0
+      emit('scroll', getVisibleLine())
+    })
   }
 
   const cycleTheme = () => {
@@ -23,11 +79,21 @@
     previewTheme.value = themes[(idx + 1) % themes.length]
   }
 
-  defineExpose({ scrollToRatio, cycleTheme, previewTheme })
+  onMounted(() => {
+    previewRef.value?.addEventListener('scroll', onScroll, { passive: true })
+  })
+
+  onBeforeUnmount(() => {
+    previewRef.value?.removeEventListener('scroll', onScroll)
+    if (scrollRafId) cancelAnimationFrame(scrollRafId)
+  })
+
+  defineExpose({ scrollToLine, cycleTheme, previewTheme })
 </script>
 
 <template>
-  <div ref="previewRef" class="markdown-preview h-full overflow-auto p-6" :class="'theme-' + previewTheme" v-html="html" />
+  <div ref="previewRef" class="markdown-preview h-full overflow-auto p-6" :class="'theme-' + previewTheme"
+    v-html="html" />
 </template>
 
 <style>

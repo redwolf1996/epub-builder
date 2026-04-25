@@ -20,7 +20,7 @@
 
   const emit = defineEmits<{
     'update:modelValue': [value: string]
-    'scroll': [ratio: number]
+    'scroll': [info: { line: number; offsetY: number }]
   }>()
 
   // 颜色 span 装饰器：解析 <span style="color:xxx">text</span>，标签淡化，文字着色
@@ -156,16 +156,6 @@
         if (update.docChanged) {
           emit('update:modelValue', update.state.doc.toString())
         }
-        if (update.geometryChanged || update.docChanged) {
-          requestAnimationFrame(() => {
-            const scroller = editorRef.value?.dom.querySelector('.cm-scroller')
-            if (scroller) {
-              const maxScroll = scroller.scrollHeight - scroller.clientHeight
-              const ratio = maxScroll > 0 ? scroller.scrollTop / maxScroll : 0
-              emit('scroll', ratio)
-            }
-          })
-        }
       }),
       EditorView.lineWrapping,
     ]
@@ -183,9 +173,15 @@
       state,
       parent: containerRef.value,
     })
+
+    const scroller = editorRef.value.dom.querySelector('.cm-scroller')
+    scroller?.addEventListener('scroll', onEditorScroll, { passive: true })
   })
 
   onBeforeUnmount(() => {
+    const scroller = editorRef.value?.dom.querySelector('.cm-scroller')
+    scroller?.removeEventListener('scroll', onEditorScroll)
+    if (scrollRafId) cancelAnimationFrame(scrollRafId)
     editorRef.value?.destroy()
   })
 
@@ -211,12 +207,32 @@
     return /^[#>*+\-`|~!\[_]|^\d+[.]|^(\*{2,}|_{2,})/.test(text)
   }
 
+  let scrollRafId = 0
+  const onEditorScroll = () => {
+    if (scrollRafId) return
+    scrollRafId = requestAnimationFrame(() => {
+      scrollRafId = 0
+      if (!editorRef.value) return
+      const view = editorRef.value
+      const scroller = view.dom.querySelector('.cm-scroller') as HTMLElement | null
+      if (!scroller) return
+      // 直接从 CodeMirror 视口获取首行行号
+      const line = view.state.doc.lineAt(view.viewport.from).number
+      // 获取该行的视觉位置，计算距视口顶部的像素偏移
+      const lineStart = view.state.doc.line(line).from
+      const block = view.lineBlockAt(lineStart)
+      const offsetY = block.top - scroller.scrollTop
+      emit('scroll', { line, offsetY })
+    })
+  }
+
   defineExpose({
-    getScrollRatio: () => {
-      const scroller = editorRef.value?.dom.querySelector('.cm-scroller')
-      if (!scroller) return 0
-      const maxScroll = scroller.scrollHeight - scroller.clientHeight
-      return maxScroll > 0 ? scroller.scrollTop / maxScroll : 0
+    scrollToLine: (line: number) => {
+      if (!editorRef.value) return
+      const pos = editorRef.value.state.doc.line(line).from
+      editorRef.value.dispatch({
+        effects: EditorView.scrollIntoView(pos, { y: 'start' }),
+      })
     },
     loadContent: (content: string) => {
       if (!editorRef.value) return

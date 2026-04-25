@@ -39,6 +39,22 @@ hljs.registerLanguage('cpp', cpp)
 hljs.registerLanguage('rust', rust)
 hljs.registerLanguage('go', go)
 
+// 为 block 级元素添加 data-line 属性，用于编辑器-预览滚动同步
+function sourceLinePlugin(md: MarkdownIt) {
+  const blockTokens = new Set([
+    'heading_open', 'paragraph_open', 'bullet_list_open', 'ordered_list_open',
+    'list_item_open', 'blockquote_open', 'fence', 'code_block', 'table_open',
+    'hr', 'html_block',
+  ])
+  md.core.ruler.push('source_line', (state) => {
+    for (const token of state.tokens) {
+      if (blockTokens.has(token.type) && token.map) {
+        token.attrSet('data-line', String(token.map[0] + 1))
+      }
+    }
+  })
+}
+
 const md = new MarkdownIt({
   html: true,
   linkify: true,
@@ -54,6 +70,8 @@ const md = new MarkdownIt({
     return `<pre class="hljs"><code>${md.utils.escapeHtml(str)}</code></pre>`
   },
 })
+
+md.use(sourceLinePlugin)
 
 export function renderMarkdown(content: string): string {
   // 预处理：将行首全角空格（U+3000）转为 &emsp; 实体，避免被 markdown-it 丢弃

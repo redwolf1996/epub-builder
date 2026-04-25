@@ -96,3 +96,6 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - 使用 Dexie.js 操作 IndexedDB
 - 自动保存需 debounce 500ms
 - 所有数据操作通过 composable 封装
+
+## AI编辑优化
+- 当使用plan mode（计划模式）的时候，计划文件都写入 根目录的 `.windsurf/plans/` 目录下，不要放到系统文件里

@@ -1,6 +1,6 @@
 <script setup lang="ts">
-  import { computed } from 'vue'
-  import { NButton, NInput, NPopconfirm, NTooltip } from 'naive-ui'
+  import { computed, h } from 'vue'
+  import { NButton, NDropdown, NInput, useDialog } from 'naive-ui'
   import { VueDraggable } from 'vue-draggable-plus'
   import type { Chapter } from '@/types'
 
@@ -46,6 +46,33 @@
     props.chapters.filter((c) => c.parentId === id).sort((a, b) => a.order - b.order)
 
   const isCollapsed = (id: string) => props.collapsedIds.has(id)
+
+  const getActionOptions = (chapter: Chapter) => {
+    const options: { label: string; key: string; icon?: () => ReturnType<typeof h> }[] = [
+      { label: props.addSubText, key: 'addSub', icon: () => h('span', { class: 'i-carbon-add-alt text-xs' }) },
+    ]
+    if (chapter.parentId) {
+      options.push({ label: props.promoteText, key: 'promote', icon: () => h('span', { class: 'i-carbon-promote text-xs' }) })
+    }
+    options.push({ label: props.deleteText, key: 'delete', icon: () => h('span', { class: 'i-carbon-trash-can text-xs' }) })
+    return options
+  }
+
+  const dialog = useDialog()
+
+  const handleAction = (key: string, chapter: Chapter) => {
+    if (key === 'addSub') emit('addSub', chapter.id)
+    else if (key === 'promote') emit('promote', chapter.id)
+    else if (key === 'delete') {
+      dialog.warning({
+        title: props.deleteText,
+        content: props.deleteConfirmText,
+        positiveText: props.confirmText,
+        negativeText: props.cancelText,
+        onPositiveClick: () => emit('delete', chapter.id),
+      })
+    }
+  }
 </script>
 
 <template>
@@ -89,36 +116,12 @@
             @click="emit('select', chapter)"
             @dblclick="emit('renameStart', chapter)">{{ chapter.title }}</span>
         </template>
-        <NTooltip>
-          <template #trigger>
-            <NButton quaternary size="tiny" @click.stop="emit('addSub', chapter.id)" class="action-btn">
-              <span class="i-carbon-add-alt text-xs" />
-            </NButton>
-          </template>
-          {{ addSubText }}
-        </NTooltip>
-        <NTooltip v-if="chapter.parentId">
-          <template #trigger>
-            <NButton quaternary size="tiny" @click.stop="emit('promote', chapter.id)" class="action-btn">
-              <span class="i-carbon-promote text-xs" />
-            </NButton>
-          </template>
-          {{ promoteText }}
-        </NTooltip>
-        <NPopconfirm :positive-text="confirmText" :negative-text="cancelText"
-          @positive-click="emit('delete', chapter.id)">
-          <template #trigger>
-            <NTooltip>
-              <template #trigger>
-                <NButton quaternary size="tiny" @click.stop class="delete-btn">
-                  <span class="i-carbon-trash-can text-xs" />
-                </NButton>
-              </template>
-              {{ deleteText }}
-            </NTooltip>
-          </template>
-          {{ deleteConfirmText }}
-        </NPopconfirm>
+        <NDropdown :options="getActionOptions(chapter)" trigger="hover" placement="bottom-end"
+          @select="handleAction($event, chapter)">
+          <NButton quaternary size="tiny" @click.stop class="action-btn">
+            <span class="i-carbon-overflow-menu-horizontal text-xs" />
+          </NButton>
+        </NDropdown>
       </div>
       <ChapterNode v-if="getChildren(chapter.id).length > 0 && !isCollapsed(chapter.id)" :parent-id="chapter.id"
         :chapters="chapters" :current-chapter-id="currentChapterId" :editing-chapter-id="editingChapterId"
@@ -161,15 +164,6 @@
   }
 
   .chapter-item:hover .drag-handle {
-    opacity: 1;
-  }
-
-  .delete-btn {
-    opacity: 0;
-    transition: opacity 0.2s;
-  }
-
-  .chapter-item:hover .delete-btn {
     opacity: 1;
   }
 

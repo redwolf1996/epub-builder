@@ -12,10 +12,12 @@
   "app": {
     "windows": [
       {
-        "title": "EPUB Builder",
+        "title": "EPUB Builder: Best way to create EPUB files from Markdown",
         "width": 1280,
-        "height": 800,
+        "height": 720,
         "resizable": true,
+        "center": true,
+        "maximized": false,
         "fullscreen": false
       }
     ],

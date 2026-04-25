@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { NConfigProvider, NMessageProvider, NDialogProvider, NButton, darkTheme } from 'naive-ui'
+import { NConfigProvider, NMessageProvider, NDialogProvider, NButton, darkTheme, zhCN, dateZhCN, enUS, dateEnUS } from 'naive-ui'
 import type { GlobalThemeOverrides } from 'naive-ui'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -28,6 +28,15 @@ const bookTitle = computed(() => {
 
 const naiveTheme = computed(() => {
   return themeStore.theme === 'light' || themeStore.theme === 'parchment' ? null : darkTheme
+})
+
+const naiveLocale = computed(() => {
+  const l = locale.value
+  return l === 'zh-CN' ? zhCN : enUS
+})
+const naiveDateLocale = computed(() => {
+  const l = locale.value
+  return l === 'zh-CN' ? dateZhCN : dateEnUS
 })
 
 const themeOverrides = computed<GlobalThemeOverrides>(() => {
@@ -61,7 +70,7 @@ const handleCreateBook = () => {
 </script>
 
 <template>
-  <NConfigProvider :theme="naiveTheme" :theme-overrides="themeOverrides">
+  <NConfigProvider :theme="naiveTheme" :theme-overrides="themeOverrides" :locale="naiveLocale" :date-locale="naiveDateLocale">
     <NMessageProvider>
       <NDialogProvider>
         <div class="app-shell h-screen flex flex-col">

@@ -135,7 +135,7 @@ const handleRemoveCover = async () => {
 
         <!-- 右侧：表单 -->
         <div class="flex-1 min-w-1 flex flex-col h-[320px]">
-          <NForm label-placement="left" label-width="auto" :show-feedback="false" class="h-full flex flex-col justify-between">
+          <NForm label-placement="left" label-width="120" label-wrap :show-feedback="false" class="h-full flex flex-col justify-between">
           <NFormItem :label="t('settings.bookTitle')">
             <NInput v-model:value="meta.title" :placeholder="t('settings.bookTitlePlaceholder')" />
           </NFormItem>

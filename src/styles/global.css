@@ -65,4 +65,23 @@ button {
   transition: all 0.2s ease;
 }
 
+/* Modal 入场动画 */
+.n-modal {
+  animation: modal-in 180ms ease;
+}
 
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* 按钮点击反馈 */
+button:active:not(.n-button) {
+  transform: scale(0.97);
+}

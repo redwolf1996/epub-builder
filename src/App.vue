@@ -100,7 +100,11 @@ const handleCreateBook = () => {
             </div>
           </header>
           <div class="flex-1 min-h-0 overflow-hidden">
-            <RouterView />
+            <RouterView v-slot="{ Component }">
+              <Transition name="page-fade" mode="out-in">
+                <component :is="Component" />
+              </Transition>
+            </RouterView>
           </div>
         </div>
       </NDialogProvider>
@@ -135,16 +139,16 @@ const handleCreateBook = () => {
 
 .page-fade-enter-active,
 .page-fade-leave-active {
-  transition: opacity 0.25s ease, transform 0.25s ease;
+  transition: opacity 0.18s ease, transform 0.18s ease;
 }
 
 .page-fade-enter-from {
   opacity: 0;
-  transform: translateY(8px);
+  transform: translateY(3px);
 }
 
 .page-fade-leave-to {
   opacity: 0;
-  transform: translateY(-8px);
+  transform: translateY(-3px);
 }
 </style>

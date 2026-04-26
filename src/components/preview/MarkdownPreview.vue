@@ -31,37 +31,47 @@
     }
   }
 
+  const getDataLineElements = (): HTMLElement[] => {
+    if (!previewRef.value) return []
+    return Array.from(previewRef.value.querySelectorAll('[data-line]')) as HTMLElement[]
+  }
+
   const findClosestElement = (line: number): HTMLElement | null => {
-    if (!previewRef.value) return null
-    const elements = previewRef.value.querySelectorAll('[data-line]')
-    let closest: HTMLElement | null = null
-    let minDiff = Infinity
-    for (const el of elements) {
-      const elLine = Number((el as HTMLElement).dataset.line)
-      const diff = Math.abs(elLine - line)
-      if (diff < minDiff) {
-        closest = el as HTMLElement
-        minDiff = diff
-      }
+    const elements = getDataLineElements()
+    if (elements.length === 0) return null
+    let lo = 0, hi = elements.length - 1
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1
+      if (Number(elements[mid].dataset.line) < line) lo = mid + 1
+      else hi = mid
     }
-    return closest
+    // lo 是第一个 >= line 的，比较 lo 和 lo-1 谁更近
+    const el = elements[lo]
+    const prev = lo > 0 ? elements[lo - 1] : null
+    if (!prev) return el
+    const diffEl = Math.abs(Number(el.dataset.line) - line)
+    const diffPrev = Math.abs(Number(prev.dataset.line) - line)
+    return diffPrev <= diffEl ? prev : el
   }
 
   const getVisibleLine = (): number => {
     if (!previewRef.value) return 0
     const containerTop = previewRef.value.getBoundingClientRect().top
-    const containerBottom = previewRef.value.getBoundingClientRect().bottom
-    const elements = previewRef.value.querySelectorAll('[data-line]')
-    for (const el of elements) {
-      const rect = (el as HTMLElement).getBoundingClientRect()
-      if (rect.top >= containerTop && rect.top < containerBottom) {
-        return Number((el as HTMLElement).dataset.line)
-      }
-      if (rect.bottom > containerTop && rect.top < containerTop) {
-        return Number((el as HTMLElement).dataset.line)
-      }
+    const elements = getDataLineElements()
+    if (elements.length === 0) return 0
+    // 二分查找：找到第一个 top >= containerTop 的元素
+    let lo = 0, hi = elements.length - 1
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1
+      if (elements[mid].getBoundingClientRect().top < containerTop) lo = mid + 1
+      else hi = mid
     }
-    return 0
+    // lo 是第一个进入视口的元素，但可能 lo-1 跨越视口顶部（部分可见）
+    if (lo > 0) {
+      const prevRect = elements[lo - 1].getBoundingClientRect()
+      if (prevRect.bottom > containerTop) return Number(elements[lo - 1].dataset.line)
+    }
+    return Number(elements[lo].dataset.line)
   }
 
   let scrollRafId = 0

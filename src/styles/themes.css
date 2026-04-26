@@ -99,3 +99,15 @@
   --naive-card: #faf0d7;
   --naive-modal: #faf0d7;
 }
+
+/* 主题切换过渡 */
+.app-header,
+.chapter-sidebar,
+.editor-toolbar,
+.editor-statusbar,
+.mobile-tabs,
+.book-card,
+.home-page,
+.settings-page {
+  transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}

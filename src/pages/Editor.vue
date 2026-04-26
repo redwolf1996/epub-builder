@@ -1,18 +1,20 @@
 <script setup lang="ts">
-  import { onMounted, onBeforeUnmount, ref, watch, computed } from 'vue'
+  import { onMounted, onBeforeUnmount, ref, watch } from 'vue'
   import { useRoute, useRouter } from 'vue-router'
   import { useI18n } from 'vue-i18n'
   import { NButton, NInput, NScrollbar, NModal, useMessage } from 'naive-ui'
   import { useBookStore } from '@/stores/book'
   import { useEditorStore } from '@/stores/editor'
   import { useEpub } from '@/composables/useEpub'
+  import { useResizable } from '@/composables/useResizable'
+  import { useChapterManager } from '@/composables/useChapterManager'
+  import { useScrollSync } from '@/composables/useScrollSync'
   import CodeMirrorEditor from '@/components/editor/CodeMirrorEditor.vue'
   import type { EditorActions } from '@/components/editor/EditorToolbar.vue'
   import EditorToolbar from '@/components/editor/EditorToolbar.vue'
   import MarkdownPreview from '@/components/preview/MarkdownPreview.vue'
   import { open } from '@tauri-apps/plugin-dialog'
   import { invoke } from '@tauri-apps/api/core'
-  import type { Chapter } from '@/types'
   import ChapterNode from '@/components/editor/ChapterNode.vue'
 
   const route = useRoute()
@@ -22,90 +24,42 @@
   const message = useMessage()
   const { t } = useI18n()
 
+  const bookId = route.params.id as string
+
   const editorActions = ref<EditorActions | null>(null)
   const cmEditorRef = ref<InstanceType<typeof CodeMirrorEditor> | null>(null)
   const previewRef = ref<InstanceType<typeof MarkdownPreview> | null>(null)
   const syncScroll = ref(true)
-  const showAddChapter = ref(false)
-  const newChapterTitle = ref('')
-  const addChapterParentId = ref<string | null>(null)
-  const editingChapterId = ref<string | null>(null)
-  const editingTitle = ref('')
   const isMobile = ref(window.innerWidth < 768)
-  const collapsedIds = ref<Set<string>>(new Set())
-  const chapterSearch = ref('')
   const isFullscreen = ref(false)
-
-  // 拖拽分割线宽度（持久化）
-  const sidebarWidth = ref(Number(localStorage.getItem('editor-sidebar-width')) || 240)
-  const editorRatio = ref(Number(localStorage.getItem('editor-split-ratio')) || 0.5)
+  const showFullscreenDrawer = ref(false)
+  const ocrProcessing = ref(false)
   const splitContainerRef = ref<HTMLElement | null>(null)
 
-  const SIDEBAR_MIN = 160
-  const SIDEBAR_MAX = 400
+  // --- Composables ---
+  const { sidebarWidth, editorRatio, onSidebarDragStart, onSplitDragStart } = useResizable(splitContainerRef)
 
-  // 持久化保存
-  watch(sidebarWidth, (val) => localStorage.setItem('editor-sidebar-width', String(val)))
-  watch(editorRatio, (val) => localStorage.setItem('editor-split-ratio', String(val)))
+  const {
+    showAddChapter, newChapterTitle,
+    editingChapterId, editingTitle, chapterSearch, collapsedIds,
+    localChapters, filteredChapters,
+    handleChapterClick, handleChapterDblClick,
+    handleAddChapter, handleAddSubChapter, handlePromoteChapter, handleDeleteChapter,
+    confirmRename, cancelRename, toggleCollapse, onChapterSortEnd,
+  } = useChapterManager(bookStore, editorStore, cmEditorRef, bookId, message, t)
 
-  let draggingSidebar = false
-  let draggingSplit = false
-  let dragStartX = 0
-  let dragStartWidth = 0
-  let dragStartRatio = 0
+  const { handleEditorScroll, handlePreviewScroll } = useScrollSync(cmEditorRef, previewRef, syncScroll)
 
-  const onSidebarDragStart = (e: MouseEvent) => {
-    draggingSidebar = true
-    dragStartX = e.clientX
-    dragStartWidth = sidebarWidth.value
-    document.addEventListener('mousemove', onSidebarDragMove)
-    document.addEventListener('mouseup', onDragEnd)
-    document.body.style.cursor = 'col-resize'
-    document.body.style.userSelect = 'none'
-    e.preventDefault()
-  }
-
-  const onSidebarDragMove = (e: MouseEvent) => {
-    if (!draggingSidebar) return
-    const delta = e.clientX - dragStartX
-    sidebarWidth.value = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, dragStartWidth + delta))
-  }
-
-  const onSplitDragStart = (e: MouseEvent) => {
-    draggingSplit = true
-    dragStartX = e.clientX
-    dragStartRatio = editorRatio.value
-    document.addEventListener('mousemove', onSplitDragMove)
-    document.addEventListener('mouseup', onDragEnd)
-    document.body.style.cursor = 'col-resize'
-    document.body.style.userSelect = 'none'
-    e.preventDefault()
-  }
-
-  const onSplitDragMove = (e: MouseEvent) => {
-    if (!draggingSplit || !splitContainerRef.value) return
-    const rect = splitContainerRef.value.getBoundingClientRect()
-    const delta = e.clientX - dragStartX
-    const deltaRatio = delta / rect.width
-    editorRatio.value = Math.min(0.8, Math.max(0.2, dragStartRatio + deltaRatio))
-  }
-
-  const onDragEnd = () => {
-    draggingSidebar = false
-    draggingSplit = false
-    document.removeEventListener('mousemove', onSidebarDragMove)
-    document.removeEventListener('mousemove', onSplitDragMove)
-    document.removeEventListener('mouseup', onDragEnd)
-    document.body.style.cursor = ''
-    document.body.style.userSelect = ''
-  }
-
-  const bookId = route.params.id as string
-
+  // --- Lifecycle ---
   onMounted(async () => {
     await bookStore.openBook(bookId)
     window.addEventListener('resize', handleResize)
     window.addEventListener('keydown', handleKeydown)
+  })
+
+  onBeforeUnmount(() => {
+    window.removeEventListener('resize', handleResize)
+    window.removeEventListener('keydown', handleKeydown)
   })
 
   // 将 CodeMirrorEditor 暴露的方法传递给 toolbar
@@ -120,6 +74,7 @@
         dedentAll: () => cm.dedentAll(),
         setFontSize: (size: number) => cm.setFontSize(size),
         cyclePreviewTheme: () => previewRef.value?.cycleTheme(),
+        openSearch: () => cm.openSearch(),
       }
     }
   }, { immediate: true })
@@ -130,6 +85,7 @@
 
   const toggleFullscreen = () => {
     isFullscreen.value = !isFullscreen.value
+    showFullscreenDrawer.value = false
   }
 
   const handleKeydown = (e: KeyboardEvent) => {
@@ -137,163 +93,28 @@
       e.preventDefault()
       toggleFullscreen()
     }
+    // Ctrl+S / Cmd+S 手动保存
+    if (e.key === 's' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault()
+      editorStore.flushSave()
+    }
   }
-
-  onBeforeUnmount(() => {
-    window.removeEventListener('resize', handleResize)
-    window.removeEventListener('keydown', handleKeydown)
-  })
 
   const handleBack = () => {
     router.push('/')
   }
 
-  const handleSelectChapter = (chapterId: string) => {
-    const chapter = bookStore.chapters.find((c) => c.id === chapterId)
-    if (chapter) {
-      // 先保存旧章节的 pending 内容（此时 currentChapter 还是旧的）
-      editorStore.flushSave()
-      editorStore.cancelPendingSave()
-      // 再切换章节
-      bookStore.selectChapter(chapter)
-      editorStore.loadChapterContent(chapter.content)
-      cmEditorRef.value?.loadContent(chapter.content)
-      // 持久化当前章节
-      localStorage.setItem(`editor-chapter-${bookId}`, chapter.id)
-    }
-  }
-
-  // 单击章节：仅选中
-  const handleChapterClick = (chapter: { id: string; title: string }) => {
-    if (editingChapterId.value === chapter.id) return // 正在编辑此章节
-    if (editingChapterId.value) {
-      confirmRename() // 先保存正在编辑的
-    }
-    handleSelectChapter(chapter.id)
-  }
-
-  // 双击章节：选中 + 进入编辑
-  const handleChapterDblClick = (chapter: { id: string; title: string }) => {
-    handleSelectChapter(chapter.id)
-    startRenameChapter(chapter.id, chapter.title)
-  }
-
-  // 点击编辑区外部退出编辑
   const handleEditorAreaClick = () => {
     if (editingChapterId.value) {
       confirmRename()
     }
   }
 
-  // 拖拽排序后的回调
-  const onChapterSortEnd = async (parentId: string | null, orderedIds: string[]) => {
-    await bookStore.reorderChapters(parentId, orderedIds)
-  }
-
-  // 章节搜索过滤
-  const filteredChapters = computed(() => {
-    const keyword = chapterSearch.value.trim().toLowerCase()
-    if (!keyword) return localChapters.value
-    return localChapters.value.filter((c) => c.title.toLowerCase().includes(keyword))
-  })
-
-  // 本地可拖拽章节列表（VueDraggable 需要 v-model 可写）
-  const localChapters = ref<Chapter[]>([])
-
-  // 同步 store → local
-  watch(() => bookStore.chapters, (chapters) => {
-    localChapters.value = [...chapters]
-  }, { immediate: true, deep: true })
-
-  const handleAddChapter = async () => {
-    if (!newChapterTitle.value.trim()) {
-      message.warning(t('editor.chapterTitle'))
-      return
-    }
-    await bookStore.addChapter(bookId, newChapterTitle.value.trim(), addChapterParentId.value)
-    newChapterTitle.value = ''
-    addChapterParentId.value = null
-    showAddChapter.value = false
-    message.success(t('editor.chapterAdded'))
-  }
-
-  const handleAddSubChapter = (parentId: string) => {
-    addChapterParentId.value = parentId
-    showAddChapter.value = true
-  }
-
-  const handlePromoteChapter = async (chapterId: string) => {
-    await bookStore.moveChapterToParent(chapterId, null)
-    message.success(t('editor.chapterPromoted'))
-  }
-
-  const handleDeleteChapter = async (chapterId: string) => {
-    await bookStore.deleteChapter(chapterId)
-    message.success(t('editor.chapterDeleted'))
-  }
-
-  const startRenameChapter = (chapterId: string, currentTitle: string) => {
-    editingChapterId.value = chapterId
-    editingTitle.value = currentTitle
-  }
-
-  const confirmRename = async () => {
-    if (!editingChapterId.value) return
-    const title = editingTitle.value.trim()
-    if (!title) {
-      message.warning(t('editor.titleEmpty'))
-      return
-    }
-    await bookStore.renameChapter(editingChapterId.value, title)
-    editingChapterId.value = null
-    editingTitle.value = ''
-  }
-
-  const cancelRename = () => {
-    editingChapterId.value = null
-    editingTitle.value = ''
-  }
-
-  const toggleCollapse = (id: string) => {
-    const s = new Set(collapsedIds.value)
-    if (s.has(id)) s.delete(id)
-    else s.add(id)
-    collapsedIds.value = s
-  }
-
   const handleContentChange = (value: string) => {
     editorStore.setContent(value)
   }
 
-  // 滚动同步：防止循环触发
-  let scrollSource: 'editor' | 'preview' | null = null
-  let scrollTimer: ReturnType<typeof setTimeout> | null = null
-
-  const clearScrollSource = () => {
-    scrollSource = null
-    scrollTimer = null
-  }
-
-  const handleEditorScroll = (info: { line: number; offsetY: number }) => {
-    if (!syncScroll.value) return
-    if (scrollSource === 'preview') return
-    scrollSource = 'editor'
-    if (scrollTimer) clearTimeout(scrollTimer)
-    scrollTimer = setTimeout(clearScrollSource, 50)
-    previewRef.value?.scrollToLine(info.line, info.offsetY)
-  }
-
-  const handlePreviewScroll = (line: number) => {
-    if (!syncScroll.value) return
-    if (scrollSource === 'editor') return
-    scrollSource = 'preview'
-    if (scrollTimer) clearTimeout(scrollTimer)
-    scrollTimer = setTimeout(clearScrollSource, 50)
-    cmEditorRef.value?.scrollToLine(line)
-  }
-
-  const ocrProcessing = ref(false)
-
+  // OCR
   const handleOcr = async () => {
     const selected = await open({
       multiple: false,
@@ -319,6 +140,7 @@
     }
   }
 
+  // EPUB 导出
   const { exporting, handleExport: doExport } = useEpub()
 
   const handleExport = async () => {
@@ -348,7 +170,56 @@
 
 <template>
   <div class="editor-page h-full flex" :class="{ 'is-fullscreen': isFullscreen }">
-    <!-- 左侧章节面板 -->
+    <!-- 全屏模式章节抽屉 -->
+    <Transition name="drawer">
+      <aside v-if="isFullscreen && showFullscreenDrawer" class="fullscreen-drawer chapter-sidebar flex flex-col overflow-hidden"
+        @click.stop>
+        <div class="flex items-center justify-between px-3 shrink-0"
+          style="height: 36px; border-bottom: 1px solid var(--border-color)">
+          <span class="text-sm font-semibold" style="color: var(--text-secondary)">
+            <span class="i-carbon-catalog mr-1" />{{ t('editor.chapterList') }}
+          </span>
+          <NButton quaternary size="tiny" type="primary" @click="showAddChapter = true">
+            <span class="i-carbon-add" style="font-size: 16px; font-weight: 900" />
+          </NButton>
+        </div>
+
+        <div class="px-2 py-1 shrink-0" style="border-bottom: 1px solid var(--border-color)">
+          <NInput v-model:value="chapterSearch" size="tiny" :placeholder="t('editor.searchChapter')" clearable>
+            <template #prefix>
+              <span class="i-carbon-search text-xs" style="color: var(--text-muted)" />
+            </template>
+          </NInput>
+        </div>
+
+        <NScrollbar class="flex-1">
+          <div class="p-2">
+            <ChapterNode :parent-id="null" :chapters="chapterSearch.trim() ? filteredChapters : localChapters"
+              :current-chapter-id="bookStore.currentChapter?.id" :editing-chapter-id="editingChapterId"
+              :editing-title="editingTitle" :collapsed-ids="collapsedIds"
+              :delete-confirm-text="t('editor.confirmDeleteChapter')" :add-sub-text="t('editor.addSubChapter')"
+              :promote-text="t('editor.promoteChapter')" :delete-text="t('editor.deleteChapter')"
+              :confirm-text="t('editor.confirm')" :cancel-text="t('editor.cancel')"
+              :rename-placeholder="t('editor.renamePlaceholder')" @select="handleChapterClick"
+              @rename-start="handleChapterDblClick" @rename-confirm="confirmRename" @rename-cancel="cancelRename"
+              @rename-input="editingTitle = $event" @add-sub="handleAddSubChapter" @promote="handlePromoteChapter"
+              @delete="handleDeleteChapter" @reorder="onChapterSortEnd" @toggle-collapse="toggleCollapse" />
+          </div>
+        </NScrollbar>
+
+        <div class="p-3" style="border-top: 1px solid var(--border-color)">
+          <NButton type="primary" ghost block @click="handleBack">
+            <span class="i-carbon-arrow-left mr-1" />
+            {{ t('editor.backToShelf') }}
+          </NButton>
+        </div>
+      </aside>
+    </Transition>
+
+    <!-- 全屏抽屉遮罩 -->
+    <div v-if="isFullscreen && showFullscreenDrawer" class="fullscreen-overlay" @click="showFullscreenDrawer = false" />
+
+    <!-- 左侧章节面板（非全屏） -->
     <aside
       v-if="!isMobile"
       class="chapter-sidebar shrink-0 flex flex-col overflow-hidden"
@@ -405,8 +276,8 @@
     <!-- 主编辑区 -->
     <main class="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden" @click="handleEditorAreaClick">
       <!-- 工具栏 -->
-      <EditorToolbar :editor-ref="editorActions" :exporting="exporting" @export="handleExport" @ocr="handleOcr"
-        @fullscreen="toggleFullscreen" />
+      <EditorToolbar :editor-ref="editorActions" :exporting="exporting" :show-chapter-toggle="isFullscreen" :chapter-toggle-active="showFullscreenDrawer" @export="handleExport" @ocr="handleOcr"
+        @fullscreen="toggleFullscreen" @toggle-chapter="showFullscreenDrawer = !showFullscreenDrawer" />
 
       <!-- 编辑器 + 预览 分屏 -->
       <div ref="splitContainerRef" class="split-container flex-1 flex min-h-0 overflow-hidden">
@@ -437,9 +308,8 @@
               editorStore.charCount
           }) }}
         </span>
-        <span class="text-xs"
-          :class="{ 'save-saving': editorStore.saveStatus === 'saving' || editorStore.saveStatus === 'dirty' }"
-          style="color: var(--text-muted)">
+        <span class="save-status text-xs" :class="'save-' + editorStore.saveStatus">
+          <span class="save-dot" />
           <template v-if="editorStore.saveStatus === 'idle'">{{ t('editor.saveIdle') }}</template>
           <template v-else-if="editorStore.saveStatus === 'dirty'">{{ t('editor.saveDirty') }}</template>
           <template v-else-if="editorStore.saveStatus === 'saving'">{{ t('editor.saveSaving') }}</template>
@@ -501,25 +371,78 @@
     width: 4px;
     cursor: col-resize;
     background: var(--border-color);
-    transition: background 0.2s;
+    transition: background 0.2s, width 0.15s;
     flex-shrink: 0;
   }
 
   .resize-handle:hover {
     background: var(--primary);
+    width: 6px;
+  }
+
+  .save-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--text-muted);
+  }
+
+  .save-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    flex-shrink: 0;
+    transition: background 0.2s ease;
+  }
+
+  .save-idle .save-dot {
+    background: var(--text-muted);
+  }
+
+  .save-dirty .save-dot {
+    background: #e0a040;
+    animation: dot-breathe 1.5s ease-in-out infinite;
+  }
+
+  .save-dirty {
+    color: #e0a040;
+  }
+
+  .save-saving .save-dot {
+    background: var(--primary);
+    animation: dot-spin 0.8s linear infinite;
   }
 
   .save-saving {
-    animation: save-pulse 1s ease-in-out infinite;
+    color: var(--primary);
+  }
+
+  .save-saved .save-dot {
+    background: #4caf50;
+  }
+
+  .save-saved {
+    color: #4caf50;
+  }
+
+  @keyframes dot-breathe {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.8); }
+  }
+
+  @keyframes dot-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
   }
 
   .is-fullscreen {
     position: fixed;
     inset: 0;
-    z-index: 9999;
+    z-index: 100;
   }
 
-  .is-fullscreen .chapter-sidebar {
+  .is-fullscreen .chapter-sidebar:not(.fullscreen-drawer) {
     display: none;
   }
 
@@ -527,15 +450,30 @@
     display: none;
   }
 
-  @keyframes save-pulse {
+  .fullscreen-drawer {
+    position: fixed;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 260px;
+    z-index: 200;
+    box-shadow: 4px 0 16px rgba(0, 0, 0, 0.15);
+  }
 
-    0%,
-    100% {
-      opacity: 1;
-    }
+  .fullscreen-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 150;
+    background: rgba(0, 0, 0, 0.3);
+  }
 
-    50% {
-      opacity: 0.4;
-    }
+  .drawer-enter-active,
+  .drawer-leave-active {
+    transition: transform 0.2s ease;
+  }
+
+  .drawer-enter-from,
+  .drawer-leave-to {
+    transform: translateX(-100%);
   }
 </style>

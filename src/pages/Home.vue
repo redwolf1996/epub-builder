@@ -68,16 +68,17 @@ const handleSettings = (id: string) => {
       <!-- 空状态 -->
       <NEmpty v-if="bookStore.books.length === 0" :description="t('home.emptyDesc')" class="mt-20">
         <template #icon>
-          <span class="i-carbon-document-blank text-5xl" style="color: var(--text-muted)" />
+          <span class="empty-icon i-carbon-document-blank text-5xl" style="color: var(--text-muted)" />
         </template>
       </NEmpty>
 
       <!-- 书籍卡片网格 -->
       <div v-else class="book-grid">
         <div
-          v-for="book in bookStore.books"
+          v-for="(book, index) in bookStore.books"
           :key="book.id"
-          class="book-card cursor-pointer"
+          class="book-card card-enter cursor-pointer"
+          :style="{ animationDelay: index * 40 + 'ms' }"
           @click="handleOpenBook(book.id)"
         >
           <!-- 封面 -->
@@ -144,6 +145,21 @@ const handleSettings = (id: string) => {
 
 .book-card {
   transition: all 0.3s ease;
+}
+
+.card-enter {
+  animation: card-in 180ms ease both;
+}
+
+@keyframes card-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 .book-card:hover {
@@ -228,6 +244,15 @@ const handleSettings = (id: string) => {
 .action-btn:not(.n-button--error-type) {
   background: rgba(255, 255, 255, 0.9) !important;
   color: #333 !important;
+}
+
+.empty-icon {
+  animation: empty-float 3s ease-in-out infinite;
+}
+
+@keyframes empty-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
 }
 
 .action-btn:not(.n-button--error-type):hover {

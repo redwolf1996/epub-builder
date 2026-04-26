@@ -70,6 +70,7 @@ export default {
     inlineCode: 'Inline Code',
     codeBlock: 'Code Block',
     ocr: 'Image OCR',
+    search: 'Find & Replace',
   },
   settings: {
     title: 'Book Settings',

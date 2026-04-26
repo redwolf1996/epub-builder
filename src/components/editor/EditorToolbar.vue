@@ -6,12 +6,16 @@
 
   const props = defineProps<{
     exporting?: boolean
+    showChapterToggle?: boolean
+    chapterToggleActive?: boolean
   }>()
 
   const emit = defineEmits<{
     export: []
     ocr: []
     fullscreen: []
+    search: []
+    toggleChapter: []
   }>()
 
   export interface EditorActions {
@@ -23,6 +27,7 @@
     dedentAll: () => void
     setFontSize: (size: number) => void
     cyclePreviewTheme: () => void
+    openSearch: () => void
   }
 
   const editorRef = defineModel<EditorActions | null>('editorRef', { required: false })
@@ -129,7 +134,18 @@
 </script>
 
 <template>
-  <div class="editor-toolbar flex items-center gap-1 px-3 shrink-0" style="height: 36px">
+  <div class="editor-toolbar flex items-center gap-1 px-3 shrink-0 overflow-x-auto" style="height: 36px">
+    <!-- 全屏模式章节切换按钮 -->
+    <NTooltip v-if="props.showChapterToggle" trigger="hover">
+      <template #trigger>
+        <NButton quaternary size="tiny" :type="props.chapterToggleActive ? 'primary' : 'default'" @click="emit('toggleChapter')">
+          <span class="i-carbon-menu text-sm" />
+        </NButton>
+      </template>
+      {{ t('editor.chapterList') }}
+    </NTooltip>
+
+    <!-- 格式组：始终显示 -->
     <NButtonGroup size="tiny">
       <NTooltip trigger="hover">
         <template #trigger>
@@ -175,7 +191,12 @@
         </template>
         {{ t('toolbar.list') }}
       </NTooltip>
+    </NButtonGroup>
 
+    <div class="toolbar-divider" />
+
+    <!-- 缩进组：首按钮 + 下拉 -->
+    <NButtonGroup size="tiny">
       <NTooltip trigger="hover">
         <template #trigger>
           <NButton quaternary @click="handleIndent">
@@ -185,33 +206,45 @@
         {{ t('toolbar.indent') }}
       </NTooltip>
 
-      <NTooltip trigger="hover">
+      <NPopover trigger="click" placement="bottom" :show-arrow="false" class="toolbar-popover">
         <template #trigger>
-          <NButton quaternary @click="handleIndentAll">
-            <span class="i-carbon-text-align-justify text-sm" />
+          <NButton quaternary size="tiny" class="toolbar-dropdown-btn">
+            <span class="i-carbon-chevron-down text-xs" />
           </NButton>
         </template>
-        {{ t('toolbar.indentAll') }}
-      </NTooltip>
+        <div class="flex gap-1 p-1">
+          <NTooltip trigger="hover">
+            <template #trigger>
+              <NButton quaternary size="tiny" @click="handleIndentAll">
+                <span class="i-carbon-text-align-justify text-sm" />
+              </NButton>
+            </template>
+            {{ t('toolbar.indentAll') }}
+          </NTooltip>
+          <NTooltip trigger="hover">
+            <template #trigger>
+              <NButton quaternary size="tiny" @click="handleDedent">
+                <span class="i-carbon-text-indent-less text-sm" />
+              </NButton>
+            </template>
+            {{ t('toolbar.dedent') }}
+          </NTooltip>
+          <NTooltip trigger="hover">
+            <template #trigger>
+              <NButton quaternary size="tiny" @click="handleDedentAll">
+                <span class="i-carbon-text-align-left text-sm" />
+              </NButton>
+            </template>
+            {{ t('toolbar.dedentAll') }}
+          </NTooltip>
+        </div>
+      </NPopover>
+    </NButtonGroup>
 
-      <NTooltip trigger="hover">
-        <template #trigger>
-          <NButton quaternary @click="handleDedent">
-            <span class="i-carbon-text-indent-less text-sm" />
-          </NButton>
-        </template>
-        {{ t('toolbar.dedent') }}
-      </NTooltip>
+    <div class="toolbar-divider" />
 
-      <NTooltip trigger="hover">
-        <template #trigger>
-          <NButton quaternary @click="handleDedentAll">
-            <span class="i-carbon-text-align-left text-sm" />
-          </NButton>
-        </template>
-        {{ t('toolbar.dedentAll') }}
-      </NTooltip>
-
+    <!-- 样式组：字号 + 下拉（前景色/背景色） -->
+    <NButtonGroup size="tiny">
       <NTooltip trigger="hover">
         <template #trigger>
           <NButtonGroup size="tiny">
@@ -226,48 +259,62 @@
         {{ t('toolbar.fontSize') }}
       </NTooltip>
 
-      <NPopover v-model:show="showFontColorPicker" trigger="click" placement="bottom">
+      <NPopover trigger="click" placement="bottom" :show-arrow="false" class="toolbar-popover">
         <template #trigger>
-          <NTooltip trigger="hover">
-            <template #trigger>
-              <NButton quaternary>
-                <span class="i-carbon-paint-brush text-sm" style="color: v-bind(fontColor)" />
-              </NButton>
-            </template>
-            {{ t('toolbar.fontColor') }}
-          </NTooltip>
+          <NButton quaternary size="tiny" class="toolbar-dropdown-btn">
+            <span class="i-carbon-chevron-down text-xs" />
+          </NButton>
         </template>
-        <div class="color-grid">
-          <div v-for="c in webSafeColors" :key="c" class="color-swatch" :style="{ backgroundColor: c }"
-            @click="applyFontColor(c)" />
-          <label class="color-swatch color-swatch-custom" title="自定义颜色">
-            <input type="color" :value="fontColor"
-              @input="(e: Event) => applyFontColor((e.target as HTMLInputElement).value)" />
-          </label>
+        <div class="flex gap-1 p-1">
+          <NPopover v-model:show="showFontColorPicker" trigger="click" placement="bottom">
+            <template #trigger>
+              <NTooltip trigger="hover">
+                <template #trigger>
+                  <NButton quaternary size="tiny">
+                    <span class="i-carbon-paint-brush text-sm" style="color: v-bind(fontColor)" />
+                  </NButton>
+                </template>
+                {{ t('toolbar.fontColor') }}
+              </NTooltip>
+            </template>
+            <div class="color-grid">
+              <div v-for="c in webSafeColors" :key="c" class="color-swatch" :style="{ backgroundColor: c }"
+                @click="applyFontColor(c)" />
+              <label class="color-swatch color-swatch-custom" title="自定义颜色">
+                <input type="color" :value="fontColor"
+                  @input="(e: Event) => applyFontColor((e.target as HTMLInputElement).value)" />
+              </label>
+            </div>
+          </NPopover>
+
+          <NPopover v-model:show="showBgColorPicker" trigger="click" placement="bottom">
+            <template #trigger>
+              <NTooltip trigger="hover">
+                <template #trigger>
+                  <NButton quaternary size="tiny">
+                    <span class="i-carbon-color-palette text-sm" style="color: v-bind(bgColor)" />
+                  </NButton>
+                </template>
+                {{ t('toolbar.bgColor') }}
+              </NTooltip>
+            </template>
+            <div class="color-grid">
+              <div v-for="c in webSafeColors" :key="c" class="color-swatch" :style="{ backgroundColor: c }"
+                @click="applyBgColor(c)" />
+              <label class="color-swatch color-swatch-custom" title="自定义颜色">
+                <input type="color" :value="bgColor"
+                  @input="(e: Event) => applyBgColor((e.target as HTMLInputElement).value)" />
+              </label>
+            </div>
+          </NPopover>
         </div>
       </NPopover>
+    </NButtonGroup>
 
-      <NPopover v-model:show="showBgColorPicker" trigger="click" placement="bottom">
-        <template #trigger>
-          <NTooltip trigger="hover">
-            <template #trigger>
-              <NButton quaternary>
-                <span class="i-carbon-color-palette text-sm" style="color: v-bind(bgColor)" />
-              </NButton>
-            </template>
-            {{ t('toolbar.bgColor') }}
-          </NTooltip>
-        </template>
-        <div class="color-grid">
-          <div v-for="c in webSafeColors" :key="c" class="color-swatch" :style="{ backgroundColor: c }"
-            @click="applyBgColor(c)" />
-          <label class="color-swatch color-swatch-custom" title="自定义颜色">
-            <input type="color" :value="bgColor"
-              @input="(e: Event) => applyBgColor((e.target as HTMLInputElement).value)" />
-          </label>
-        </div>
-      </NPopover>
+    <div class="toolbar-divider" />
 
+    <!-- 插入组：链接 + 下拉 -->
+    <NButtonGroup size="tiny">
       <NTooltip trigger="hover">
         <template #trigger>
           <NButton quaternary @click="handleLink">
@@ -277,42 +324,58 @@
         {{ t('toolbar.link') }}
       </NTooltip>
 
-      <NTooltip trigger="hover">
+      <NPopover trigger="click" placement="bottom" :show-arrow="false" class="toolbar-popover">
         <template #trigger>
-          <NButton quaternary @click="handleImage">
-            <span class="i-carbon-image text-sm" />
+          <NButton quaternary size="tiny" class="toolbar-dropdown-btn">
+            <span class="i-carbon-chevron-down text-xs" />
           </NButton>
         </template>
-        {{ t('toolbar.image') }}
-      </NTooltip>
-
-      <NTooltip v-if="isTauri()" trigger="hover">
-        <template #trigger>
-          <NButton quaternary @click="handleOcr">
-            <span class="i-carbon-scan text-sm" />
-          </NButton>
-        </template>
-        {{ t('toolbar.ocr') }}
-      </NTooltip>
-
-      <NTooltip trigger="hover">
-        <template #trigger>
-          <NButton quaternary @click="handleCode">
-            <span class="i-carbon-code text-sm" />
-          </NButton>
-        </template>
-        {{ t('toolbar.inlineCode') }}
-      </NTooltip>
-
-      <NTooltip trigger="hover">
-        <template #trigger>
-          <NButton quaternary @click="handleCodeBlock">
-            <span class="i-carbon-terminal text-sm" />
-          </NButton>
-        </template>
-        {{ t('toolbar.codeBlock') }}
-      </NTooltip>
+        <div class="flex gap-1 p-1">
+          <NTooltip trigger="hover">
+            <template #trigger>
+              <NButton quaternary size="tiny" @click="handleImage">
+                <span class="i-carbon-image text-sm" />
+              </NButton>
+            </template>
+            {{ t('toolbar.image') }}
+          </NTooltip>
+          <NTooltip v-if="isTauri()" trigger="hover">
+            <template #trigger>
+              <NButton quaternary size="tiny" @click="handleOcr">
+                <span class="i-carbon-scan text-sm" />
+              </NButton>
+            </template>
+            {{ t('toolbar.ocr') }}
+          </NTooltip>
+          <NTooltip trigger="hover">
+            <template #trigger>
+              <NButton quaternary size="tiny" @click="handleCode">
+                <span class="i-carbon-code text-sm" />
+              </NButton>
+            </template>
+            {{ t('toolbar.inlineCode') }}
+          </NTooltip>
+          <NTooltip trigger="hover">
+            <template #trigger>
+              <NButton quaternary size="tiny" @click="handleCodeBlock">
+                <span class="i-carbon-terminal text-sm" />
+              </NButton>
+            </template>
+            {{ t('toolbar.codeBlock') }}
+          </NTooltip>
+        </div>
+      </NPopover>
     </NButtonGroup>
+
+    <!-- 右侧独立按钮 -->
+    <NTooltip trigger="hover">
+      <template #trigger>
+        <NButton quaternary size="tiny" @click="editorRef?.openSearch?.()">
+          <span class="i-carbon-search text-sm" />
+        </NButton>
+      </template>
+      {{ t('toolbar.search') }} (Ctrl+F)
+    </NTooltip>
 
     <NTooltip trigger="hover">
       <template #trigger>
@@ -326,10 +389,11 @@
     <NTooltip trigger="hover">
       <template #trigger>
         <NButton quaternary size="tiny" @click="handleFullscreen">
-          <span class="i-carbon-maximize text-sm" />
+          <span v-if="!props.showChapterToggle" class="i-carbon-maximize text-sm" />
+          <span v-else class="i-carbon-minimize text-sm" />
         </NButton>
       </template>
-      {{ t('editor.fullscreen') }} (F11)
+      {{ props.showChapterToggle ? t('editor.exitFullscreen') : t('editor.fullscreen') }} (F11)
     </NTooltip>
 
     <NTooltip trigger="hover">
@@ -393,5 +457,18 @@
     width: 100%;
     height: 100%;
     cursor: pointer;
+  }
+
+  .toolbar-divider {
+    width: 1px;
+    height: 20px;
+    background: var(--border-color);
+    margin: 0 4px;
+    flex-shrink: 0;
+  }
+
+  .toolbar-dropdown-btn {
+    padding: 0 2px !important;
+    min-width: 20px !important;
   }
 </style>

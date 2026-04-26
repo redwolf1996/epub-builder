@@ -106,7 +106,7 @@
     :class="{ 'ml-4': parentId !== null }">
     <div v-for="chapter in chapterList" :key="chapter.id">
       <div
-        class="chapter-item flex items-center gap-2 px-3 py-2 rounded transition-all"
+        class="chapter-item flex items-center gap-2 px-3 py-2 rounded"
         :class="{ active: currentChapterId === chapter.id }"
         @contextmenu="handleContextMenu($event, chapter)">
         <button
@@ -174,6 +174,7 @@
 <style scoped>
   .chapter-item {
     color: var(--text-secondary);
+    transition: background 0.15s ease, color 0.15s ease;
   }
 
   .chapter-item:hover {
@@ -185,6 +186,7 @@
     background: var(--bg-active);
     color: var(--primary);
     font-weight: 500;
+    box-shadow: inset 2px 0 0 var(--primary);
   }
 
   .chapter-item:hover .n-button {

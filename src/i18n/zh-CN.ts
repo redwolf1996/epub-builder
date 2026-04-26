@@ -70,6 +70,7 @@ export default {
     inlineCode: '行内代码',
     codeBlock: '代码块',
     ocr: '图片识字',
+    search: '查找替换',
   },
   settings: {
     title: '书籍设置',

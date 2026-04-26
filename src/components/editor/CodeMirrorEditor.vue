@@ -1,7 +1,8 @@
 <script setup lang="ts">
   import { onMounted, onBeforeUnmount, watch, shallowRef } from 'vue'
+  import { compressImage } from '@/utils/image'
   import { EditorState, RangeSetBuilder } from '@codemirror/state'
-  import { EditorView, keymap, lineNumbers, highlightActiveLineGutter, highlightActiveLine, drawSelection, rectangularSelection, highlightSpecialChars, ViewPlugin, Decoration, type ViewUpdate, type DecorationSet } from '@codemirror/view'
+  import { EditorView, keymap, lineNumbers, highlightActiveLineGutter, highlightActiveLine, drawSelection, rectangularSelection, highlightSpecialChars, ViewPlugin, Decoration, WidgetType, type ViewUpdate, type DecorationSet } from '@codemirror/view'
   import { defaultKeymap, history, historyKeymap, indentWithTab, redo } from '@codemirror/commands'
   import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
   import { defaultHighlightStyle, syntaxHighlighting, HighlightStyle, bracketMatching, foldGutter, foldKeymap } from '@codemirror/language'
@@ -58,6 +59,40 @@
       this.decorations = builder.finish()
     }
   }, { decorations: (v) => v.decorations })
+
+  // base64 图片折叠插件：将 data:image/...;base64,... 替换为短标记
+  const base64FoldPlugin = ViewPlugin.fromClass(class {
+    decorations: DecorationSet = Decoration.none
+    constructor(view: EditorView) { this.build(view) }
+    update(update: ViewUpdate) { if (update.docChanged || update.viewportChanged) this.build(update.view) }
+    build(view: EditorView) {
+      const builder = new RangeSetBuilder<Decoration>()
+      const doc = view.state.doc.toString()
+      const re = /data:image\/[a-z+]+;base64,[\w+/=]+/g
+      let m: RegExpExecArray | null
+      while ((m = re.exec(doc)) !== null) {
+        const from = m.index
+        const to = m.index + m[0].length
+        // 如果光标在此范围内，不折叠（方便编辑）
+        const sel = view.state.selection.main
+        if (sel.from >= from && sel.to <= to) continue
+        builder.add(from, to, Decoration.replace({
+          widget: new Base64Placeholder(),
+        }))
+      }
+      this.decorations = builder.finish()
+    }
+  }, { decorations: (v) => v.decorations })
+
+  class Base64Placeholder extends WidgetType {
+    toDOM() {
+      const span = document.createElement('span')
+      span.className = 'cm-base64-folded'
+      span.textContent = '📎 base64 image'
+      return span
+    }
+    ignoreEvent() { return false }
+  }
 
   const markdownHighlightStyle = HighlightStyle.define([
     { tag: tags.heading1, color: '#e06c75', fontWeight: '700', fontSize: '1.4em' },
@@ -152,12 +187,32 @@
       syntaxHighlighting(markdownHighlightStyle),
       editorTheme,
       colorSpanPlugin,
+      base64FoldPlugin,
       EditorView.updateListener.of((update) => {
         if (update.docChanged) {
           emit('update:modelValue', update.state.doc.toString())
         }
       }),
       EditorView.lineWrapping,
+      EditorView.domEventHandlers({
+        paste(event) {
+          const files = event.clipboardData?.files
+          if (!files || files.length === 0) return
+          const file = Array.from(files).find((f) => f.type.startsWith('image/'))
+          if (!file) return
+          event.preventDefault()
+          compressImage(file).then((dataUrl) => {
+            if (!editorRef.value) return
+            const { from, to } = editorRef.value.state.selection.main
+            const text = `![${file.name.replace(/\.[^.]+$/, '')}](${dataUrl})`
+            editorRef.value.dispatch({
+              changes: { from, to, insert: text },
+              selection: { anchor: from + text.length },
+            })
+            editorRef.value.focus()
+          })
+        },
+      }),
     ]
   }
 
@@ -356,6 +411,12 @@
       const el = editorRef.value.dom.querySelector('.cm-content') as HTMLElement | null
       if (el) el.style.fontSize = `${size}px`
     },
+    openSearch: () => {
+      if (!editorRef.value) return
+      import('@codemirror/search').then(({ openSearchPanel }) => {
+        if (editorRef.value) openSearchPanel(editorRef.value)
+      })
+    },
   })
 </script>
 
@@ -380,5 +441,15 @@
   .cm-color-span-dim {
     opacity: 0.35;
     font-size: 0.85em;
+  }
+
+  .cm-base64-folded {
+    background: color-mix(in srgb, var(--primary) 15%, transparent);
+    color: var(--primary);
+    border-radius: 3px;
+    padding: 0 4px;
+    font-size: 0.85em;
+    cursor: pointer;
+    user-select: none;
   }
 </style>

@@ -4,7 +4,6 @@ import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { NButton, NModal, NForm, NFormItem, NInput, NPopconfirm, NEmpty, useMessage } from 'naive-ui'
 import { useBookStore } from '@/stores/book'
-import type { BookMeta } from '@/types'
 
 const router = useRouter()
 const route = useRoute()
@@ -13,14 +12,7 @@ const message = useMessage()
 const { t } = useI18n()
 
 const showModal = ref(false)
-const newBookMeta = ref<BookMeta>({
-  title: '',
-  author: '',
-  description: '',
-  language: 'zh-CN',
-  publishDate: new Date().toISOString().slice(0, 10),
-  coverImage: null,
-})
+const newBookTitle = ref('')
 
 onMounted(() => {
   bookStore.initBookList()
@@ -38,20 +30,20 @@ watch(() => route.query.create, (val) => {
 })
 
 const handleConfirmCreate = async () => {
-  if (!newBookMeta.value.title.trim()) {
+  if (!newBookTitle.value.trim()) {
     message.warning(t('home.inputTitle'))
     return
   }
-  const id = await bookStore.createBook({ ...newBookMeta.value })
-  showModal.value = false
-  newBookMeta.value = {
-    title: '',
+  const id = await bookStore.createBook({
+    title: newBookTitle.value.trim(),
     author: '',
     description: '',
     language: 'zh-CN',
     publishDate: new Date().toISOString().slice(0, 10),
     coverImage: null,
-  }
+  })
+  showModal.value = false
+  newBookTitle.value = ''
   message.success(t('home.bookCreated'))
   router.push({ path: `/settings/${id}`, query: { new: '1' } })
 }
@@ -120,13 +112,7 @@ const handleSettings = (id: string) => {
     <NModal v-model:show="showModal" preset="card" :title="t('app.createBook')" class="max-w-md">
       <NForm label-placement="top">
         <NFormItem :label="t('home.title')">
-          <NInput v-model:value="newBookMeta.title" :placeholder="t('settings.bookTitlePlaceholder')" />
-        </NFormItem>
-        <NFormItem :label="t('home.author')">
-          <NInput v-model:value="newBookMeta.author" :placeholder="t('settings.authorPlaceholder')" />
-        </NFormItem>
-        <NFormItem :label="t('settings.description')">
-          <NInput v-model:value="newBookMeta.description" type="textarea" :placeholder="t('settings.descriptionPlaceholder')" :rows="3" />
+          <NInput v-model:value="newBookTitle" :placeholder="t('settings.bookTitlePlaceholder')" @keydown.enter="handleConfirmCreate" />
         </NFormItem>
       </NForm>
       <template #action>

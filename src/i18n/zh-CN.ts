@@ -89,6 +89,12 @@ export default {
     goToEdit: '前往编辑',
     saved: '设置已保存',
     titleRequired: '书名不能为空',
+    coverTooLarge: '封面图片过大，压缩后仍超过 2MB，请选择更小的图片',
+    dragOrClick: '拖拽或点击上传',
+    saveIdle: '已保存',
+    saveDirty: '正在修改...',
+    saveSaving: '保存中...',
+    saveSaved: '已保存',
   },
   markdownHelp: {
     title: 'Markdown 语法参考',

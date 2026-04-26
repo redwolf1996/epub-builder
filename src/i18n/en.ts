@@ -89,6 +89,12 @@ export default {
     goToEdit: 'Go to Editor',
     saved: 'Settings saved',
     titleRequired: 'Title is required',
+    coverTooLarge: 'Cover image too large even after compression (over 2MB). Please choose a smaller image.',
+    dragOrClick: 'Drag & drop or click to upload',
+    saveIdle: 'Saved',
+    saveDirty: 'Editing...',
+    saveSaving: 'Saving...',
+    saveSaved: 'Saved',
   },
   markdownHelp: {
     title: 'Markdown Syntax Reference',

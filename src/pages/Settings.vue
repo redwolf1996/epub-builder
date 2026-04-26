@@ -1,10 +1,14 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { onMounted, ref, watch, onBeforeUnmount } from 'vue'
+import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { NButton, NForm, NFormItem, NInput, NUpload, NDatePicker, useMessage, type UploadFileInfo } from 'naive-ui'
 import { useBookStore } from '@/stores/book'
+import { compressImage } from '@/utils/image'
+import { debounce } from '@/utils/debounce'
 import type { BookMeta } from '@/types'
+
+type SaveStatus = 'idle' | 'dirty' | 'saving' | 'saved'
 
 const route = useRoute()
 const router = useRouter()
@@ -23,8 +27,10 @@ const meta = ref<BookMeta>({
 })
 
 const isNewBook = ref(false)
-
 const dateTimestamp = ref<number | null>(null)
+const saveStatus = ref<SaveStatus>('idle')
+const isDragOver = ref(false)
+const isCompressing = ref(false)
 
 onMounted(async () => {
   const book = await bookStore.getBook(bookId)
@@ -35,8 +41,44 @@ onMounted(async () => {
       dateTimestamp.value = new Date(meta.value.publishDate).getTime()
     }
   }
-  // 判断是否新建书籍（通过 route query）
   isNewBook.value = route.query.new === '1'
+})
+
+// --- 自动保存 ---
+const autoSave = debounce(async () => {
+  if (!meta.value.title.trim()) return
+  saveStatus.value = 'saving'
+  await bookStore.updateBookMeta(bookId, { ...meta.value })
+  saveStatus.value = 'saved'
+}, 500)
+
+watch(meta, () => {
+  if (saveStatus.value === 'idle' || saveStatus.value === 'saved') {
+    saveStatus.value = 'dirty'
+  }
+  autoSave()
+}, { deep: true })
+
+const flushSave = () => {
+  if (saveStatus.value === 'dirty') {
+    autoSave.flush()
+    saveStatus.value = 'saved'
+  }
+}
+
+onBeforeRouteLeave(() => {
+  flushSave()
+  return true
+})
+
+const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+  if (saveStatus.value === 'dirty') {
+    e.preventDefault()
+  }
+}
+window.addEventListener('beforeunload', handleBeforeUnload)
+onBeforeUnmount(() => {
+  window.removeEventListener('beforeunload', handleBeforeUnload)
 })
 
 const handleBack = () => {
@@ -58,6 +100,7 @@ const handleSave = async () => {
     return
   }
   await bookStore.updateBookMeta(bookId, { ...meta.value })
+  saveStatus.value = 'saved'
   message.success(t('settings.saved'))
   if (isNewBook.value) {
     isNewBook.value = false
@@ -67,24 +110,47 @@ const handleSave = async () => {
   }
 }
 
+const processCoverFile = async (file: File) => {
+  isCompressing.value = true
+  try {
+    const dataUrl = await compressImage(file)
+    meta.value.coverImage = dataUrl
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    if (msg.includes('too large')) {
+      message.error(t('settings.coverTooLarge'))
+    } else {
+      message.error(msg)
+    }
+  } finally {
+    isCompressing.value = false
+  }
+}
+
 const handleCoverChange = async (options: { file: UploadFileInfo; fileList: UploadFileInfo[] }) => {
   const file = options.file.file
   if (!file) return
-
-  const reader = new FileReader()
-  reader.onload = async (e) => {
-    const result = e.target?.result
-    if (typeof result === 'string') {
-      meta.value.coverImage = result
-      await bookStore.updateBookMeta(bookId, { coverImage: result })
-    }
-  }
-  reader.readAsDataURL(file)
+  await processCoverFile(file)
 }
 
-const handleRemoveCover = async () => {
+const handleCoverDrop = async (e: DragEvent) => {
+  isDragOver.value = false
+  const file = e.dataTransfer?.files[0]
+  if (!file || !file.type.startsWith('image/')) return
+  await processCoverFile(file)
+}
+
+const handleDragOver = (e: DragEvent) => {
+  e.preventDefault()
+  isDragOver.value = true
+}
+
+const handleDragLeave = () => {
+  isDragOver.value = false
+}
+
+const handleRemoveCover = () => {
   meta.value.coverImage = null
-  await bookStore.updateBookMeta(bookId, { coverImage: null })
 }
 </script>
 
@@ -96,6 +162,13 @@ const handleRemoveCover = async () => {
         {{ t('settings.back') }}
       </NButton>
       <span class="text-lg font-semibold">{{ t('settings.title') }}</span>
+      <div class="flex-1" />
+      <span class="text-xs" :class="{ 'save-saving': saveStatus === 'saving' || saveStatus === 'dirty' }" style="color: var(--text-muted)">
+        <template v-if="saveStatus === 'idle'">{{ t('settings.saveIdle') }}</template>
+        <template v-else-if="saveStatus === 'dirty'">{{ t('settings.saveDirty') }}</template>
+        <template v-else-if="saveStatus === 'saving'">{{ t('settings.saveSaving') }}</template>
+        <template v-else>{{ t('settings.saveSaved') }}</template>
+      </span>
     </header>
 
     <main class="flex-1 overflow-auto flex items-center justify-center px-6 py-6 w-full">
@@ -110,14 +183,24 @@ const handleRemoveCover = async () => {
             @change="handleCoverChange"
             class="cover-upload"
           >
-            <div class="cover-empty-bg w-full aspect-[3/4] rounded-lg flex flex-col items-center justify-center gap-3">
-              <span class="i-carbon-image text-4xl" style="color: var(--text-muted)" />
-              <NButton type="primary">
-                <template #icon>
-                  <span class="i-carbon-upload" />
-                </template>
-                {{ t('settings.uploadCover') }}
-              </NButton>
+            <div
+              class="cover-empty-bg w-full aspect-[3/4] rounded-lg flex flex-col items-center justify-center gap-3"
+              :class="{ 'drag-over': isDragOver }"
+              @dragover="handleDragOver"
+              @dragleave="handleDragLeave"
+              @drop="handleCoverDrop"
+            >
+              <span v-if="isCompressing" class="i-carbon-renew text-4xl animate-spin" style="color: var(--primary)" />
+              <template v-else>
+                <span class="i-carbon-image text-4xl" style="color: var(--text-muted)" />
+                <NButton type="primary">
+                  <template #icon>
+                    <span class="i-carbon-upload" />
+                  </template>
+                  {{ t('settings.uploadCover') }}
+                </NButton>
+                <span class="text-xs" style="color: var(--text-muted)">{{ t('settings.dragOrClick') }}</span>
+              </template>
             </div>
           </NUpload>
           <div v-else class="cover-area cover-has-img w-full aspect-[3/4] rounded-lg relative overflow-hidden">
@@ -171,12 +254,14 @@ const handleRemoveCover = async () => {
   border: 1px solid var(--border-color);
   border-radius: 12px;
   padding: 24px;
+  transition: background-color 0.3s, border-color 0.3s;
 }
 
 .header-bar {
   backdrop-filter: blur(12px);
   background: var(--bg-surface);
   border-bottom: 1px solid var(--border-color);
+  transition: background-color 0.3s, border-color 0.3s;
 }
 
 .cover-area {
@@ -194,11 +279,13 @@ const handleRemoveCover = async () => {
 .cover-empty-bg {
   background: var(--bg-surface);
   border: 2px dashed var(--border-color);
-  transition: border-color 0.2s;
+  transition: border-color 0.2s, background-color 0.2s;
 }
 
-.cover-empty-bg:hover {
+.cover-empty-bg:hover,
+.cover-empty-bg.drag-over {
   border-color: var(--primary);
+  background: var(--bg-hover);
 }
 
 .cover-has-img {
@@ -226,4 +313,23 @@ const handleRemoveCover = async () => {
   display: flex;
   justify-content: center;
 }
+
+.save-saving {
+  animation: save-pulse 1s ease-in-out infinite;
+}
+
+@keyframes save-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 </style>

@@ -7,7 +7,7 @@ import type { Options, Content } from 'epub-gen-memory'
  * 如果 Markdown 渲染后的 HTML 首行标题与章节标题相同，则去除该标题避免重复
  * 匹配 h1~h6
  */
-function deduplicateChapterTitle(html: string, chapterTitle: string): string {
+export function deduplicateChapterTitle(html: string, chapterTitle: string): string {
   const hMatch = html.match(/^\s*<h([1-6])>(.*?)<\/h[1-6]>/)
   if (hMatch) {
     const headingText = hMatch[2].replace(/<[^>]*>/g, '').trim()
@@ -22,7 +22,7 @@ function deduplicateChapterTitle(html: string, chapterTitle: string): string {
  * 根据层级深度生成章节标题 HTML
  * depth=0 → h1 (2em), depth=1 → h2 (1.5em), depth=2 → h3 (1.25em) ...
  */
-function prependChapterTitle(title: string, depth: number): string {
+export function prependChapterTitle(title: string, depth: number): string {
   const level = Math.min(depth + 1, 6)
   const sizes = ['2em', '1.5em', '1.25em', '1.1em', '1em', '0.9em']
   const fontSize = sizes[depth] ?? '0.9em'
@@ -30,7 +30,7 @@ function prependChapterTitle(title: string, depth: number): string {
 }
 
 /** 将层级深度编码到标题中，供 TOC 模板解析 */
-function encodeDepth(title: string, depth: number): string {
+export function encodeDepth(title: string, depth: number): string {
   return `D${depth}|${title}`
 }
 

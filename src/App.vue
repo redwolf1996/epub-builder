@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { NConfigProvider, NMessageProvider, NDialogProvider, NButton, darkTheme, zhCN, dateZhCN, enUS, dateEnUS } from 'naive-ui'
 import type { GlobalThemeOverrides } from 'naive-ui'
 import { useRoute, useRouter } from 'vue-router'
@@ -8,23 +8,86 @@ import { useThemeStore } from '@/stores/theme'
 import { useBookStore } from '@/stores/book'
 import ThemeSwitcher from '@/components/common/ThemeSwitcher.vue'
 
+import { isTauri } from '@/utils/epub'
+
 const route = useRoute()
 const router = useRouter()
 const themeStore = useThemeStore()
 const bookStore = useBookStore()
 const { t, locale } = useI18n()
 
-const toggleLocale = () => {
-  const newLocale = locale.value === 'zh-CN' ? 'en' : 'zh-CN'
-  locale.value = newLocale
-  localStorage.setItem('locale', newLocale)
-}
-
 const isHome = computed(() => route.path === '/')
 const bookTitle = computed(() => {
   if (isHome.value) return ''
   return bookStore.activeBook?.meta.title || ''
 })
+
+// 动态窗口标题
+const windowTitle = computed(() => {
+  const base = 'EPUB Builder'
+  if (isHome.value) return base
+  const title = bookTitle.value
+  if (route.path.includes('/settings')) return title ? `${base} — ${title} · ${t('settings.title')}` : base
+  if (route.path.includes('/editor')) return title ? `${base} — ${title}` : base
+  return base
+})
+
+watch(windowTitle, (title) => {
+  document.title = title
+  if (isTauri()) {
+    import('@tauri-apps/api/window').then(({ getCurrentWindow }) => {
+      getCurrentWindow().setTitle(title)
+    }).catch(() => {})
+  }
+}, { immediate: true })
+
+// 原生菜单事件监听
+let menuUnlisten: (() => void) | null = null
+
+onMounted(async () => {
+  if (!isTauri()) return
+  try {
+    const { listen } = await import('@tauri-apps/api/event')
+    menuUnlisten = await listen<string>('menu-event', (event) => {
+      switch (event.payload) {
+        case 'new_book':
+          if (!isHome.value) router.push('/')
+          break
+        case 'export_epub':
+          window.dispatchEvent(new CustomEvent('menu-export'))
+          break
+        case 'find_replace':
+          window.dispatchEvent(new CustomEvent('menu-find-replace'))
+          break
+        case 'toggle_theme': {
+          const themes: Array<'light' | 'dark' | 'parchment'> = ['light', 'dark', 'parchment']
+          const idx = themes.indexOf(themeStore.theme as 'light' | 'dark' | 'parchment')
+          themeStore.setTheme(themes[(idx + 1) % themes.length])
+          break
+        }
+        case 'toggle_fullscreen':
+          window.dispatchEvent(new CustomEvent('menu-fullscreen'))
+          break
+        case 'toggle_scroll_sync':
+          window.dispatchEvent(new CustomEvent('menu-scroll-sync'))
+          break
+        case 'about':
+          window.dispatchEvent(new CustomEvent('menu-about'))
+          break
+      }
+    })
+  } catch {}
+})
+
+onBeforeUnmount(() => {
+  menuUnlisten?.()
+})
+
+const toggleLocale = () => {
+  const newLocale = locale.value === 'zh-CN' ? 'en' : 'zh-CN'
+  locale.value = newLocale
+  localStorage.setItem('locale', newLocale)
+}
 
 const naiveTheme = computed(() => {
   return themeStore.theme === 'light' || themeStore.theme === 'parchment' ? null : darkTheme

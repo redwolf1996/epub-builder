@@ -24,6 +24,9 @@ windows = { version = "0.61", features = [
     "Storage",
     "Storage_Streams",
 ] }
+tauri-plugin-window-state = "2.4.1"
+tauri-plugin-single-instance = "2.4.1"
+tauri-plugin-notification = "2.3.3"
 
 [profile.dev]
 incremental = false

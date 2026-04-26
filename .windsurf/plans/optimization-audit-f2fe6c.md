@@ -227,14 +227,97 @@
 
 | # | 优化点 | 优先级 | 状态 |
 |---|--------|--------|------|
-| 1 | 窗口状态记忆 (`tauri-plugin-window-state`) | 高 | ❌ 未开始 |
-| 2 | 动态窗口标题 | 中 | ❌ 未开始 |
-| 3 | 单实例锁 (`tauri-plugin-single-instance`) | 中 | ❌ 未开始 |
-| 4 | 导出完成系统通知 | 中 | ❌ 未开始 |
-| 5 | OCR 跨平台支持 | 中 | ❌ 未开始 |
-| 6 | 自动更新 (`tauri-plugin-updater`) | 低 | ❌ 未开始 |
-| 7 | 原生菜单栏 | 低 | ❌ 未开始 |
-| 8 | 文件关联 | 低 | ❌ 未开始 |
+| 1 | 窗口状态记忆 (`tauri-plugin-window-state`) | 高 | ✅ 已完成 |
+| 2 | 动态窗口标题 | 中 | ✅ 已完成 |
+| 3 | 单实例锁 (`tauri-plugin-single-instance`) | 中 | ✅ 已完成 |
+| 4 | 导出完成系统通知 | 中 | ✅ 已完成 |
+| 5 | OCR 跨平台支持 | 中 | ⏭️ 跳过 |
+| 6 | 自动更新 (`tauri-plugin-updater`) | 低 | ⏭️ 跳过 |
+| 7 | 原生菜单栏 | 低 | ✅ 已完成 |
+| 8 | 文件关联 | 低 | ⏭️ 跳过 |
+
+### 三-1. 窗口状态记忆（高优先级）
+
+**现状**：`tauri.conf.json` 硬编码 `width: 1280, height: 720`，用户调整窗口大小/位置后重启丢失
+
+**方案**：
+1. 添加依赖：`cd src-tauri && cargo add tauri-plugin-window-state`
+2. `lib.rs` → `run()` 中注册 `.plugin(tauri_plugin_window_state::Builder::new().build())`
+3. `tauri.conf.json` → `app.windows[0]` 中移除固定尺寸，改为 `"fullscreen": false` 即可（插件会覆盖）
+4. 无需前端代码改动，插件自动保存/恢复窗口位置、大小、最大化状态
+
+**涉及文件**：
+- `src-tauri/Cargo.toml` — 添加依赖
+- `src-tauri/src/lib.rs` — 注册插件
+- `src-tauri/tauri.conf.json` — 微调窗口配置
+
+### 三-2. 动态窗口标题（中优先级）
+
+**现状**：窗口标题固定为 `"EPUB Builder: Best way to create EPUB files from Markdown"`，不随页面切换变化
+
+**方案**：
+1. `App.vue` → 监听 `route.path` + `bookStore.activeBook`，通过 Tauri API 动态设置标题
+2. 首页：`EPUB Builder`；编辑器：`EPUB Builder — {书名}`；设置：`EPUB Builder — {书名} · 设置`
+3. 使用 `import { getCurrentWindow } from '@tauri-apps/api/window'` → `getCurrentWindow().setTitle(title)`
+4. 非 Tauri 环境用 `document.title` 降级
+
+**涉及文件**：
+- `src/App.vue` — 添加 watch + setTitle 逻辑
+
+### 三-3. 单实例锁（中优先级）
+
+**现状**：双击桌面图标会打开多个实例，可能导致 IndexedDB 数据冲突
+
+**方案**：
+1. 添加依赖：`cd src-tauri && cargo add tauri-plugin-single-instance`
+2. `lib.rs` → 注册 `.plugin(tauri_plugin_single_instance::init())`
+3. 第二次启动时自动聚焦已有窗口（插件默认行为）
+4. 如需传递参数（如打开文件），可通过插件事件 `single-instance` 接收，当前不需要
+
+**涉及文件**：
+- `src-tauri/Cargo.toml` — 添加依赖
+- `src-tauri/src/lib.rs` — 注册插件
+
+### 三-4. 导出完成系统通知（中优先级）
+
+**现状**：EPUB 导出完成后仅用 Naive UI `message.success` 提示，窗口不在前台时看不到
+
+**方案**：
+1. 添加依赖：`cd src-tauri && cargo add tauri-plugin-notification`
+2. `lib.rs` → 注册 `.plugin(tauri_plugin_notification::init())`
+3. 前端 `Editor.vue` → `handleExport` 成功后，若 Tauri 环境则发送系统通知：
+   ```ts
+   import { isTauri } from '@/utils/epub'
+   if (isTauri()) {
+     const { sendNotification } = await import('@tauri-apps/plugin-notification')
+     sendNotification({ title: 'EPUB Builder', body: t('editor.exportEpub') })
+   }
+   ```
+4. 同时保留 `message.success` 作为应用内提示，系统通知仅窗口不在前台时显示
+
+**涉及文件**：
+- `src-tauri/Cargo.toml` — 添加依赖
+- `src-tauri/src/lib.rs` — 注册插件
+- `src/pages/Editor.vue` — handleExport 中添加通知
+
+### 三-7. 原生菜单栏（低优先级）
+
+**现状**：无原生菜单栏，所有操作通过 UI 按钮完成，不符合桌面应用习惯
+
+**方案**：
+1. 添加依赖：`cd src-tauri && cargo add tauri-plugin-macos-menu-bar`（仅 macOS）或手动用 `tauri::Menu`
+2. **简化方案**：在 `lib.rs` 中用 Tauri 内置 Menu API 创建基础菜单：
+   - `File`：新建书籍、导出 EPUB、关闭窗口
+   - `Edit`：撤销、重做、查找替换
+   - `View`：切换主题、全屏、同步滚动
+   - `Help`：关于
+3. 菜单项点击通过 `tauri::Emitter` 发事件到前端，前端监听后执行对应操作
+4. **注意**：Tauri v2 的 Menu API 在 `tauri::menu` 模块，需要 `features = ["tray-icon", "image-ico"]` 或类似
+
+**涉及文件**：
+- `src-tauri/Cargo.toml` — 可能需要 features
+- `src-tauri/src/lib.rs` — 创建菜单 + 事件处理
+- `src/App.vue` 或 `Editor.vue` — 监听菜单事件
 
 ---
 
@@ -376,29 +459,106 @@
 
 ## 五、测试 (vitest)
 
-**结论：有必要做，但范围需控制。**
+**结论：有必要做，但范围需控制。仅做"投入产出比高"的单元测试，可选测试不做。**
 
 ### 应做的测试（投入产出比高）
 
 | 测试目标 | 类型 | 状态 |
 |----------|------|------|
-| `utils/debounce.ts` | 单元 | ❌ 未开始 |
-| `utils/markdown.ts` → `renderMarkdown` | 单元 | ❌ 未开始 |
-| `utils/epub.ts` → `deduplicateChapterTitle` / `prependChapterTitle` / `encodeDepth` | 单元 | ❌ 未开始 |
-| `stores/editor.ts` → `wordCount` / `charCount` / `saveStatus` 状态机 | 单元 | ❌ 未开始 |
-| `composables/useChapter.ts` → CRUD | 单元 | ❌ 未开始 |
+| `utils/debounce.ts` | 单元 | ✅ 已完成 |
+| `utils/markdown.ts` → `renderMarkdown` / `extractTitle` | 单元 | ✅ 已完成 |
+| `utils/epub.ts` → `deduplicateChapterTitle` / `prependChapterTitle` / `encodeDepth` | 单元 | ✅ 已完成 |
+| `stores/editor.ts` → `wordCount` / `charCount` / `saveStatus` 状态机 | 单元 | ✅ 已完成 |
+| `composables/useChapter.ts` → CRUD | 单元 | ✅ 已完成 |
 
-### 可选的测试
+### 五-0. 基础设施配置
+
+1. `pnpm add -D vitest @vue/test-utils happy-dom`
+2. 新建 `vitest.config.ts`：
+   ```ts
+   import { defineConfig } from 'vitest/config'
+   import vue from '@vitejs/plugin-vue'
+   import { fileURLToPath, URL } from 'node:url'
+
+   export default defineConfig({
+     plugins: [vue()],
+     resolve: {
+       alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
+     },
+     test: { globals: true, environment: 'happy-dom' },
+   })
+   ```
+3. `package.json` scripts 添加 `"test": "vitest", "test:run": "vitest run"`
+4. 新建 `src/__tests__/` 目录
+
+**涉及文件**：
+- `vitest.config.ts` — 新建
+- `package.json` — 添加 scripts + devDependencies
+
+### 五-1. `utils/debounce.ts` 单元测试
+
+**测试用例**：
+- 延迟调用：连续调用 N 次，仅最后一次参数生效
+- `cancel()`：取消后不再触发回调
+- `flush()`：立即执行，使用传入参数
+- `flush()` 后 timer 被清除，后续延迟调用正常
+
+**文件**：`src/__tests__/debounce.test.ts`
+
+### 五-2. `utils/markdown.ts` 单元测试
+
+**测试用例**：
+- `renderMarkdown`：标题 → `<h1>` 含 `data-line`
+- `renderMarkdown`：代码块高亮 → `<pre class="hljs">`
+- `renderMarkdown`：全角空格预处理 → `&emsp;`
+- `renderMarkdown`：em-space 缩进 → `text-indent`
+- `extractTitle`：`# Title` → `"Title"`，无标题 → `""`
+
+**文件**：`src/__tests__/markdown.test.ts`
+
+### 五-3. `utils/epub.ts` 单元测试
+
+**前置**：将 `deduplicateChapterTitle` / `prependChapterTitle` / `encodeDepth` 改为 `export function`
+
+**测试用例**：
+- `deduplicateChapterTitle`：标题匹配 → 去除首行 `<h1>`；不匹配 → 原样返回；无标题行 → 原样返回
+- `prependChapterTitle`：depth=0 → `<h1 style="font-size:2em...">`；depth=5 → `<h6>`；depth>5 → 饱和 h6 + 0.9em
+- `encodeDepth`：`("Chapter 1", 2)` → `"D2|Chapter 1"`
+
+**文件**：`src/__tests__/epub.test.ts`
+
+### 五-4. `stores/editor.ts` 单元测试
+
+**前置**：需 mock `useBookStore`（`saveCurrentChapter` 方法）
+
+**测试用例**：
+- `charCount`：纯文本长度
+- `wordCount`：CJK 字符计数 + 英文单词计数混合
+- `saveStatus` 状态机：`idle` → `setContent` → `dirty` → (debounce) → `saving` → `saved`
+- `flushSave`：dirty 状态下立即保存
+- `cancelPendingSave`：取消后不触发保存
+
+**文件**：`src/__tests__/editor.test.ts`
+
+### 五-5. `composables/useChapter.ts` 单元测试
+
+**前置**：需 mock Dexie `db`（用 `fake-indexeddb` + 重建 db schema，或手动 mock `db.chapters` 方法）
+
+**测试用例**：
+- `addChapter`：创建章节 → chapters 数组增加、order 递增
+- `updateChapterContent`：更新后本地状态同步
+- `deleteChapter`：删除父章节 → 子章节递归删除
+- `reorderChapters`：order 按传入顺序重排
+- `moveChapterToParent`：移到新父级 → parentId 和 order 更新
+
+**文件**：`src/__tests__/useChapter.test.ts`
+
+### 可选的测试（不做）
 
 | 测试目标 | 类型 | 状态 |
 |----------|------|------|
-| 组件渲染快照 | 组件 | ❌ 未开始 |
-| E2E 导出流程 | E2E | ❌ 未开始 |
-
-### 配置步骤
-1. `pnpm add -D vitest @vue/test-utils happy-dom`
-2. `vitest.config.ts` 配置
-3. 按上述优先级逐个添加测试文件
+| 组件渲染快照 | 组件 | ⏭️ 跳过 |
+| E2E 导出流程 | E2E | ⏭️ 跳过 |
 
 ---
 
@@ -429,13 +589,15 @@
 - ✅ 二-6 查找替换工具栏按钮
 - ✅ 二-7 全屏模式章节抽屉
 
-### 第三批：Tauri 产物 + UI 视觉（待实施）
-- ❌ 窗口状态记忆插件
-- ❌ 单实例锁
-- ❌ 动态窗口标题
-- ❌ 路由 Transition + 主题切换过渡
-- ❌ 书籍卡片入场动画
-- ❌ 分割线拖拽反馈优化
+### 第三批：Tauri 产物体验 ✅ 已完成
+- ✅ 三-1 窗口状态记忆（tauri-plugin-window-state）
+- ✅ 三-2 动态窗口标题（App.vue watch + setTitle）
+- ✅ 三-3 单实例锁（tauri-plugin-single-instance）
+- ✅ 三-4 导出完成系统通知（tauri-plugin-notification）
+- ⏭️ 三-5 OCR 跨平台 — 跳过
+- ⏭️ 三-6 自动更新 — 跳过
+- ✅ 三-7 原生菜单栏（Tauri Menu API）
+- ⏭️ 三-8 文件关联 — 跳过
 
 ### 第四批：UI 视觉优化 ✅ 已完成
 - ✅ 四-1 路由切换过渡（App.vue RouterView 包 Transition）
@@ -447,7 +609,12 @@
 - ✅ 四-7 章节选中过渡（左侧指示条 + 精细 transition）
 - ✅ 四-8 空状态视觉层次（浮动动画 + 渐变图标）
 - ✅ 四-9 按钮点击反馈（active 微缩放）
-- ❌ vitest 基础设施 + 核心单元测试
+- ✅ 五-0 vitest 基础设施配置
+- ✅ 五-1 debounce 单元测试
+- ✅ 五-2 markdown 单元测试
+- ✅ 五-3 epub 工具函数单元测试
+- ✅ 五-4 editor store 单元测试
+- ✅ 五-5 useChapter composable 单元测试
 - ❌ 移动端章节抽屉
 - ❌ 图片粘贴支持
 - ❌ OCR 跨平台

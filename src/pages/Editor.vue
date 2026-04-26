@@ -6,6 +6,7 @@
   import { useBookStore } from '@/stores/book'
   import { useEditorStore } from '@/stores/editor'
   import { useEpub } from '@/composables/useEpub'
+  import { isTauri } from '@/utils/epub'
   import { useResizable } from '@/composables/useResizable'
   import { useChapterManager } from '@/composables/useChapterManager'
   import { useScrollSync } from '@/composables/useScrollSync'
@@ -51,15 +52,28 @@
   const { handleEditorScroll, handlePreviewScroll } = useScrollSync(cmEditorRef, previewRef, syncScroll)
 
   // --- Lifecycle ---
+  // 原生菜单事件处理
+  const onMenuFindReplace = () => editorActions.value?.openSearch()
+  const onMenuScrollSync = () => { syncScroll.value = !syncScroll.value }
+
   onMounted(async () => {
     await bookStore.openBook(bookId)
     window.addEventListener('resize', handleResize)
     window.addEventListener('keydown', handleKeydown)
+    // 原生菜单事件
+    window.addEventListener('menu-export', handleExport)
+    window.addEventListener('menu-find-replace', onMenuFindReplace)
+    window.addEventListener('menu-fullscreen', toggleFullscreen)
+    window.addEventListener('menu-scroll-sync', onMenuScrollSync)
   })
 
   onBeforeUnmount(() => {
     window.removeEventListener('resize', handleResize)
     window.removeEventListener('keydown', handleKeydown)
+    window.removeEventListener('menu-export', handleExport)
+    window.removeEventListener('menu-find-replace', onMenuFindReplace)
+    window.removeEventListener('menu-fullscreen', toggleFullscreen)
+    window.removeEventListener('menu-scroll-sync', onMenuScrollSync)
   })
 
   // 将 CodeMirrorEditor 暴露的方法传递给 toolbar
@@ -148,6 +162,12 @@
       const title = bookStore.activeBook?.meta.title || t('editor.exportEpub')
       await doExport(bookId, title)
       message.success(t('editor.exportEpub'))
+      // Tauri 系统通知
+      if (isTauri()) {
+        import('@tauri-apps/plugin-notification').then(({ sendNotification }) => {
+          sendNotification({ title: 'EPUB Builder', body: t('editor.exportEpub') })
+        }).catch(() => {})
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : t('epub.exportFailed')
       message.error(msg)

@@ -68,6 +68,18 @@ fn ocr_image(path: String, lang: String) -> Result<String, String> {
     }
 }
 
+#[tauri::command]
+async fn toggle_menu(app: tauri::AppHandle, visible: bool) -> Result<bool, String> {
+    use tauri::Manager;
+    let win = app.get_webview_window("main").ok_or("main window not found")?;
+    if visible {
+        win.show_menu().map_err(|e| e.to_string())?;
+    } else {
+        win.hide_menu().map_err(|e| e.to_string())?;
+    }
+    Ok(!visible)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -76,7 +88,7 @@ pub fn run() {
         .plugin(tauri_plugin_window_state::Builder::new().build())
         .plugin(tauri_plugin_single_instance::init(|_app, _args, _cwd| {}))
         .plugin(tauri_plugin_notification::init())
-        .invoke_handler(tauri::generate_handler![ocr_image])
+        .invoke_handler(tauri::generate_handler![ocr_image, toggle_menu])
         .setup(|app| {
             use tauri::Emitter;
 

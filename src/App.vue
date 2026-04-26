@@ -43,6 +43,7 @@
 
   // 原生菜单事件监听 + 动态创建
   let menuUnlisten: (() => void) | null = null
+  let menuVisible = true
 
   async function buildNativeMenu() {
     if (!isTauri()) return
@@ -52,9 +53,9 @@
       const fileMenu = await Submenu.new({
         text: t('menu.file'),
         items: [
-          await MenuItem.new({ id: 'new_book', text: t('menu.newBook') }),
+          await MenuItem.new({ id: 'new_book', text: t('menu.newBook'), accelerator: 'Ctrl+N' }),
           await PredefinedMenuItem.new({ item: 'Separator' }),
-          await MenuItem.new({ id: 'export_epub', text: t('menu.exportEpub') }),
+          await MenuItem.new({ id: 'export_epub', text: t('menu.exportEpub'), accelerator: 'Ctrl+E' }),
           await PredefinedMenuItem.new({ item: 'Separator' }),
           await PredefinedMenuItem.new({ item: 'Quit', text: t('menu.quit') }),
         ],
@@ -71,7 +72,7 @@
           await PredefinedMenuItem.new({ item: 'Paste', text: t('menu.paste') }),
           await PredefinedMenuItem.new({ item: 'SelectAll', text: t('menu.selectAll') }),
           await PredefinedMenuItem.new({ item: 'Separator' }),
-          await MenuItem.new({ id: 'find_replace', text: t('menu.findReplace') }),
+          await MenuItem.new({ id: 'find_replace', text: t('menu.findReplace'), accelerator: 'Ctrl+F' }),
         ],
       })
 
@@ -79,7 +80,7 @@
         text: t('menu.view'),
         items: [
           await MenuItem.new({ id: 'toggle_theme', text: t('menu.toggleTheme') }),
-          await MenuItem.new({ id: 'app_fullscreen', text: t('menu.appFullscreen') }),
+          await MenuItem.new({ id: 'app_fullscreen', text: t('menu.appFullscreen'), accelerator: 'Ctrl+Enter' }),
           await MenuItem.new({ id: 'toggle_scroll_sync', text: t('menu.toggleScrollSync') }),
         ],
       })
@@ -93,7 +94,15 @@
 
       const menu = await Menu.new({ items: [fileMenu, editMenu, viewMenu, helpMenu] })
       await menu.setAsAppMenu()
-    } catch { }
+    } catch (e) { console.error('buildNativeMenu failed', e) }
+  }
+
+  async function toggleMenuVisibility() {
+    if (!isTauri()) return
+    try {
+      const { invoke } = await import('@tauri-apps/api/core')
+      menuVisible = await invoke<boolean>('toggle_menu', { visible: menuVisible })
+    } catch (e) { console.error('toggleMenuVisibility failed', e) }
   }
 
   onMounted(async () => {
@@ -205,6 +214,14 @@
 
   const handleKeydown = (e: KeyboardEvent) => {
     if (e.key === 'Escape' && appFullscreen.value) {
+      toggleAppFullscreen()
+    }
+    if (e.key === 'Alt') {
+      e.preventDefault()
+      toggleMenuVisibility()
+    }
+    if (e.key === 'Enter' && e.ctrlKey) {
+      e.preventDefault()
       toggleAppFullscreen()
     }
   }

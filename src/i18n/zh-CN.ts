@@ -71,6 +71,7 @@ export default {
     codeBlock: '代码块',
     ocr: '图片识字',
     search: '查找替换',
+    scrollSync: '滚动同步',
   },
   settings: {
     title: '书籍设置',
@@ -140,5 +141,25 @@ export default {
   mobile: {
     edit: '编辑',
     preview: '预览',
+  },
+  menu: {
+    file: '文件',
+    newBook: '新建书籍',
+    exportEpub: '导出 EPUB',
+    quit: '退出',
+    edit: '编辑',
+    undo: '撤销',
+    redo: '重做',
+    cut: '剪切',
+    copy: '复制',
+    paste: '粘贴',
+    selectAll: '全选',
+    findReplace: '查找替换',
+    view: '视图',
+    toggleTheme: '切换主题',
+    toggleFullscreen: '切换全屏',
+    toggleScrollSync: '切换滚动同步',
+    help: '帮助',
+    about: '关于 EPUB Builder',
   },
 }

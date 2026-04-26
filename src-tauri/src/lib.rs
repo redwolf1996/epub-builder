@@ -79,43 +79,6 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![ocr_image])
         .setup(|app| {
             use tauri::Emitter;
-            use tauri::menu::{MenuBuilder, PredefinedMenuItem, SubmenuBuilder};
-
-            let file_menu = SubmenuBuilder::new(app, "File")
-                .text("new_book", "New Book")
-                .separator()
-                .text("export_epub", "Export EPUB")
-                .separator()
-                .item(&PredefinedMenuItem::quit(app, None)?)
-                .build()?;
-
-            let edit_menu = SubmenuBuilder::new(app, "Edit")
-                .item(&PredefinedMenuItem::undo(app, None)?)
-                .item(&PredefinedMenuItem::redo(app, None)?)
-                .separator()
-                .item(&PredefinedMenuItem::cut(app, None)?)
-                .item(&PredefinedMenuItem::copy(app, None)?)
-                .item(&PredefinedMenuItem::paste(app, None)?)
-                .item(&PredefinedMenuItem::select_all(app, None)?)
-                .separator()
-                .text("find_replace", "Find && Replace")
-                .build()?;
-
-            let view_menu = SubmenuBuilder::new(app, "View")
-                .text("toggle_theme", "Toggle Theme")
-                .text("toggle_fullscreen", "Toggle Fullscreen")
-                .text("toggle_scroll_sync", "Toggle Scroll Sync")
-                .build()?;
-
-            let help_menu = SubmenuBuilder::new(app, "Help")
-                .text("about", "About EPUB Builder")
-                .build()?;
-
-            let menu = MenuBuilder::new(app)
-                .items(&[&file_menu, &edit_menu, &view_menu, &help_menu])
-                .build()?;
-
-            app.set_menu(menu)?;
 
             app.on_menu_event(move |app_handle, event| {
                 let id = event.id().0.as_str();

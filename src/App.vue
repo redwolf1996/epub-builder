@@ -41,8 +41,60 @@ watch(windowTitle, (title) => {
   }
 }, { immediate: true })
 
-// 原生菜单事件监听
+// 原生菜单事件监听 + 动态创建
 let menuUnlisten: (() => void) | null = null
+
+async function buildNativeMenu() {
+  if (!isTauri()) return
+  try {
+    const { Menu, Submenu, MenuItem, PredefinedMenuItem } = await import('@tauri-apps/api/menu')
+
+    const fileMenu = await Submenu.new({
+      text: t('menu.file'),
+      items: [
+        await MenuItem.new({ id: 'new_book', text: t('menu.newBook') }),
+        await PredefinedMenuItem.new({ item: 'Separator' }),
+        await MenuItem.new({ id: 'export_epub', text: t('menu.exportEpub') }),
+        await PredefinedMenuItem.new({ item: 'Separator' }),
+        await PredefinedMenuItem.new({ item: 'Quit', text: t('menu.quit') }),
+      ],
+    })
+
+    const editMenu = await Submenu.new({
+      text: t('menu.edit'),
+      items: [
+        await PredefinedMenuItem.new({ item: 'Undo', text: t('menu.undo') }),
+        await PredefinedMenuItem.new({ item: 'Redo', text: t('menu.redo') }),
+        await PredefinedMenuItem.new({ item: 'Separator' }),
+        await PredefinedMenuItem.new({ item: 'Cut', text: t('menu.cut') }),
+        await PredefinedMenuItem.new({ item: 'Copy', text: t('menu.copy') }),
+        await PredefinedMenuItem.new({ item: 'Paste', text: t('menu.paste') }),
+        await PredefinedMenuItem.new({ item: 'SelectAll', text: t('menu.selectAll') }),
+        await PredefinedMenuItem.new({ item: 'Separator' }),
+        await MenuItem.new({ id: 'find_replace', text: t('menu.findReplace') }),
+      ],
+    })
+
+    const viewMenu = await Submenu.new({
+      text: t('menu.view'),
+      items: [
+        await MenuItem.new({ id: 'toggle_theme', text: t('menu.toggleTheme') }),
+        await MenuItem.new({ id: 'toggle_fullscreen', text: t('menu.toggleFullscreen') }),
+        await MenuItem.new({ id: 'toggle_scroll_sync', text: t('menu.toggleScrollSync') }),
+      ],
+    })
+
+    const helpMenu = await Submenu.new({
+      text: t('menu.help'),
+      items: [
+        await MenuItem.new({ id: 'about', text: t('menu.about') }),
+      ],
+    })
+
+    const menu = await Menu.new({ items: [fileMenu, editMenu, viewMenu, helpMenu] })
+    await menu.setAsAppMenu()
+  } catch {}
+}
 
 onMounted(async () => {
   if (!isTauri()) return
@@ -76,7 +128,13 @@ onMounted(async () => {
           break
       }
     })
+    await buildNativeMenu()
   } catch {}
+})
+
+// 语言切换时重建菜单
+watch(locale, () => {
+  buildNativeMenu()
 })
 
 onBeforeUnmount(() => {

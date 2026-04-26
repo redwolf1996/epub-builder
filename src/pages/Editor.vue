@@ -296,8 +296,8 @@
     <!-- 主编辑区 -->
     <main class="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden" @click="handleEditorAreaClick">
       <!-- 工具栏 -->
-      <EditorToolbar :editor-ref="editorActions" :exporting="exporting" :show-chapter-toggle="isFullscreen" :chapter-toggle-active="showFullscreenDrawer" @export="handleExport" @ocr="handleOcr"
-        @fullscreen="toggleFullscreen" @toggle-chapter="showFullscreenDrawer = !showFullscreenDrawer" />
+      <EditorToolbar :editor-ref="editorActions" :exporting="exporting" :show-chapter-toggle="isFullscreen" :chapter-toggle-active="showFullscreenDrawer" :sync-scroll="syncScroll" @export="handleExport" @ocr="handleOcr"
+        @fullscreen="toggleFullscreen" @toggle-chapter="showFullscreenDrawer = !showFullscreenDrawer" @toggle-scroll-sync="onMenuScrollSync" />
 
       <!-- 编辑器 + 预览 分屏 -->
       <div ref="splitContainerRef" class="split-container flex-1 flex min-h-0 overflow-hidden">

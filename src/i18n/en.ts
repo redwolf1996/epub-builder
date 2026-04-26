@@ -71,6 +71,7 @@ export default {
     codeBlock: 'Code Block',
     ocr: 'Image OCR',
     search: 'Find & Replace',
+    scrollSync: 'Scroll Sync',
   },
   settings: {
     title: 'Book Settings',
@@ -140,5 +141,25 @@ export default {
   mobile: {
     edit: 'Edit',
     preview: 'Preview',
+  },
+  menu: {
+    file: 'File',
+    newBook: 'New Book',
+    exportEpub: 'Export EPUB',
+    quit: 'Quit',
+    edit: 'Edit',
+    undo: 'Undo',
+    redo: 'Redo',
+    cut: 'Cut',
+    copy: 'Copy',
+    paste: 'Paste',
+    selectAll: 'Select All',
+    findReplace: 'Find && Replace',
+    view: 'View',
+    toggleTheme: 'Toggle Theme',
+    toggleFullscreen: 'Toggle Fullscreen',
+    toggleScrollSync: 'Toggle Scroll Sync',
+    help: 'Help',
+    about: 'About EPUB Builder',
   },
 }

@@ -8,6 +8,7 @@
     exporting?: boolean
     showChapterToggle?: boolean
     chapterToggleActive?: boolean
+    syncScroll?: boolean
   }>()
 
   const emit = defineEmits<{
@@ -16,6 +17,7 @@
     fullscreen: []
     search: []
     toggleChapter: []
+    toggleScrollSync: []
   }>()
 
   export interface EditorActions {
@@ -195,7 +197,7 @@
 
     <div class="toolbar-divider" />
 
-    <!-- 缩进组：首按钮 + 下拉 -->
+    <!-- 缩进组：首行缩进 + 全文缩进 直接显示 -->
     <NButtonGroup size="tiny">
       <NTooltip trigger="hover">
         <template #trigger>
@@ -205,7 +207,14 @@
         </template>
         {{ t('toolbar.indent') }}
       </NTooltip>
-
+      <NTooltip trigger="hover">
+        <template #trigger>
+          <NButton quaternary @click="handleIndentAll">
+            <span class="i-carbon-text-align-justify text-sm" />
+          </NButton>
+        </template>
+        {{ t('toolbar.indentAll') }}
+      </NTooltip>
       <NPopover trigger="click" placement="bottom" :show-arrow="false" class="toolbar-popover">
         <template #trigger>
           <NButton quaternary size="tiny" class="toolbar-dropdown-btn">
@@ -213,14 +222,6 @@
           </NButton>
         </template>
         <div class="flex gap-1 p-1">
-          <NTooltip trigger="hover">
-            <template #trigger>
-              <NButton quaternary size="tiny" @click="handleIndentAll">
-                <span class="i-carbon-text-align-justify text-sm" />
-              </NButton>
-            </template>
-            {{ t('toolbar.indentAll') }}
-          </NTooltip>
           <NTooltip trigger="hover">
             <template #trigger>
               <NButton quaternary size="tiny" @click="handleDedent">
@@ -313,17 +314,24 @@
 
     <div class="toolbar-divider" />
 
-    <!-- 插入组：链接 + 下拉 -->
+    <!-- 插入组：图片 + OCR 直接显示，链接/代码在下拉 -->
     <NButtonGroup size="tiny">
       <NTooltip trigger="hover">
         <template #trigger>
-          <NButton quaternary @click="handleLink">
-            <span class="i-carbon-link text-sm" />
+          <NButton quaternary @click="handleImage">
+            <span class="i-carbon-image text-sm" />
           </NButton>
         </template>
-        {{ t('toolbar.link') }}
+        {{ t('toolbar.image') }}
       </NTooltip>
-
+      <NTooltip v-if="isTauri()" trigger="hover">
+        <template #trigger>
+          <NButton quaternary @click="handleOcr">
+            <span class="i-carbon-scan text-sm" />
+          </NButton>
+        </template>
+        {{ t('toolbar.ocr') }}
+      </NTooltip>
       <NPopover trigger="click" placement="bottom" :show-arrow="false" class="toolbar-popover">
         <template #trigger>
           <NButton quaternary size="tiny" class="toolbar-dropdown-btn">
@@ -333,19 +341,11 @@
         <div class="flex gap-1 p-1">
           <NTooltip trigger="hover">
             <template #trigger>
-              <NButton quaternary size="tiny" @click="handleImage">
-                <span class="i-carbon-image text-sm" />
+              <NButton quaternary size="tiny" @click="handleLink">
+                <span class="i-carbon-link text-sm" />
               </NButton>
             </template>
-            {{ t('toolbar.image') }}
-          </NTooltip>
-          <NTooltip v-if="isTauri()" trigger="hover">
-            <template #trigger>
-              <NButton quaternary size="tiny" @click="handleOcr">
-                <span class="i-carbon-scan text-sm" />
-              </NButton>
-            </template>
-            {{ t('toolbar.ocr') }}
+            {{ t('toolbar.link') }}
           </NTooltip>
           <NTooltip trigger="hover">
             <template #trigger>
@@ -368,6 +368,15 @@
     </NButtonGroup>
 
     <!-- 右侧独立按钮 -->
+    <NTooltip trigger="hover">
+      <template #trigger>
+        <NButton size="tiny" :type="props.syncScroll !== false ? 'primary' : 'default'" :tertiary="props.syncScroll !== false" :quaternary="props.syncScroll === false" @click="emit('toggleScrollSync')">
+          <span class="i-carbon-arrows-vertical text-sm" />
+        </NButton>
+      </template>
+      {{ t('toolbar.scrollSync') }}
+    </NTooltip>
+
     <NTooltip trigger="hover">
       <template #trigger>
         <NButton quaternary size="tiny" @click="editorRef?.openSearch?.()">

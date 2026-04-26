@@ -4,6 +4,9 @@ import unocss from 'unocss/vite'
 import { fileURLToPath, URL } from 'node:url'
 
 export default defineConfig({
+  define: {
+    __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
+  },
   plugins: [vue(), unocss()],
   server: {
     port: 7788,

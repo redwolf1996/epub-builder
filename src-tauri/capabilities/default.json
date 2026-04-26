@@ -8,6 +8,7 @@
     "dialog:allow-save",
     "dialog:allow-open",
     "fs:default",
-    "fs:allow-write-file"
+    "fs:allow-write-file",
+    "core:window:allow-set-fullscreen"
   ]
 }

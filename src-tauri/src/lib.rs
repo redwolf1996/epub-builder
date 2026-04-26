@@ -84,7 +84,7 @@ pub fn run() {
                 let id = event.id().0.as_str();
                 match id {
                     "new_book" | "export_epub" | "find_replace" | "toggle_theme"
-                    | "toggle_fullscreen" | "toggle_scroll_sync" | "about" => {
+                    | "app_fullscreen" | "toggle_scroll_sync" | "about" => {
                         let _ = app_handle.emit("menu-event", id);
                     }
                     _ => {}

@@ -96,7 +96,7 @@ export function deduplicateChapterTitle(html: string, chapterTitle: string): str
 export function buildChapterBody(title: string, html: string, anchor: string): string {
   const bodyHtml = deduplicateChapterTitle(html, title)
   const bodyContent = isMeaningfulContent(bodyHtml) ? bodyHtml : '<p></p>'
-  return `<section epub:type="chapter"><h1 id="${escapeHtml(anchor)}">${escapeHtml(title)}</h1>${bodyContent}</section>`
+  return `<section epub:type="chapter"><h1 id="${escapeHtml(anchor)}" style="color:#00AA44">${escapeHtml(title)}</h1>${bodyContent}</section>`
 }
 
 export function flattenChapters(chapters: Chapter[]): Array<Chapter & { depth: number }> {

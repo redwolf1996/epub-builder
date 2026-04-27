@@ -4,17 +4,20 @@ import { useEpub } from '@/composables/useEpub'
 const mocks = vi.hoisted(() => ({
   exportToEpub: vi.fn(),
   downloadEpub: vi.fn(),
+  validateExport: vi.fn(),
 }))
 
 vi.mock('@/utils/epub', () => ({
   exportToEpub: mocks.exportToEpub,
   downloadEpub: mocks.downloadEpub,
+  validateExport: mocks.validateExport,
 }))
 
 describe('useEpub', () => {
   beforeEach(() => {
     mocks.exportToEpub.mockReset()
     mocks.downloadEpub.mockReset()
+    mocks.validateExport.mockReset()
   })
 
   it('returns saved status after a successful export', async () => {
@@ -47,5 +50,13 @@ describe('useEpub', () => {
 
     expect(exporting.value).toBe(false)
     expect(error.value).toBe('boom')
+  })
+
+  it('proxies export validation results', async () => {
+    const validation = { blockingErrors: [], warnings: ['warn'] }
+    mocks.validateExport.mockResolvedValue(validation)
+
+    const { validateExport } = useEpub()
+    await expect(validateExport('book-1')).resolves.toEqual(validation)
   })
 })

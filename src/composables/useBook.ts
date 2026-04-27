@@ -6,11 +6,21 @@ export function useBook() {
   const books = ref<Book[]>([])
   const loading = ref(false)
 
+  const sortBooks = (list: Book[]) => {
+    return [...list].sort((a, b) => b.updatedAt - a.updatedAt)
+  }
+
   const loadBooks = async () => {
     loading.value = true
     try {
-      const list = await db.books.orderBy('updatedAt').reverse().toArray()
-      books.value = list
+      try {
+        const list = await db.books.orderBy('updatedAt').reverse().toArray()
+        books.value = sortBooks(list)
+      } catch (error) {
+        console.error('loadBooks orderBy(updatedAt) failed, falling back to toArray()', error)
+        const list = await db.books.toArray()
+        books.value = sortBooks(list)
+      }
     } finally {
       loading.value = false
     }
@@ -18,6 +28,17 @@ export function useBook() {
 
   const getBook = async (id: string): Promise<Book | undefined> => {
     return db.books.get(id)
+  }
+
+  const getChapterCounts = async (bookIds: string[]): Promise<Record<string, number>> => {
+    const uniqueBookIds = Array.from(new Set(bookIds))
+    const counts: Record<string, number> = {}
+
+    await Promise.all(uniqueBookIds.map(async (bookId) => {
+      counts[bookId] = await db.chapters.where('bookId').equals(bookId).count()
+    }))
+
+    return counts
   }
 
   const createBook = async (meta: BookMeta): Promise<string> => {
@@ -29,15 +50,17 @@ export function useBook() {
       createdAt: now,
       updatedAt: now,
     }
+
     await db.books.add(book)
+    await loadBooks()
 
     const chapterId = crypto.randomUUID()
     await db.chapters.add({
       id: chapterId,
       bookId: id,
       parentId: null,
-      title: '绗竴绔?',
-      content: '# 绗竴绔燶n\n寮€濮嬩功鍐欎綘鐨勬晠浜?..',
+      title: '第一章',
+      content: '# 第一章\n\n开始在这里写下你的内容。',
       order: 0,
       createdAt: now,
       updatedAt: now,
@@ -58,12 +81,7 @@ export function useBook() {
     }
 
     await db.books.put(updatedBook)
-
-    const index = books.value.findIndex((item) => item.id === id)
-    if (index !== -1) {
-      books.value.splice(index, 1, updatedBook)
-      books.value.sort((a, b) => b.updatedAt - a.updatedAt)
-    }
+    await loadBooks()
 
     return updatedBook
   }
@@ -71,7 +89,7 @@ export function useBook() {
   const deleteBook = async (id: string) => {
     await db.chapters.where('bookId').equals(id).delete()
     await db.books.delete(id)
-    books.value = books.value.filter((b) => b.id !== id)
+    await loadBooks()
   }
 
   return {
@@ -79,6 +97,7 @@ export function useBook() {
     loading,
     loadBooks,
     getBook,
+    getChapterCounts,
     createBook,
     updateBookMeta,
     deleteBook,

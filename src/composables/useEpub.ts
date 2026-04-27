@@ -1,5 +1,5 @@
 import { ref } from 'vue'
-import { exportToEpub, downloadEpub, type DownloadEpubResult } from '@/utils/epub'
+import { exportToEpub, downloadEpub, validateExport, type DownloadEpubResult, type ExportValidationResult } from '@/utils/epub'
 
 export function useEpub() {
   const exporting = ref(false)
@@ -24,5 +24,6 @@ export function useEpub() {
     exporting,
     error,
     handleExport,
+    validateExport: (bookId: string): Promise<ExportValidationResult> => validateExport(bookId),
   }
 }

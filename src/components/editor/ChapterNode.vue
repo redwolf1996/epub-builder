@@ -106,7 +106,7 @@
     :class="{ 'ml-4': parentId !== null }">
     <div v-for="chapter in chapterList" :key="chapter.id">
       <div
-        class="chapter-item flex items-center gap-2 px-3 py-2 rounded"
+        class="chapter-item flex min-w-0 items-center gap-2 px-3 py-2 rounded"
         :class="{ active: currentChapterId === chapter.id }"
         @contextmenu="handleContextMenu($event, chapter)">
         <button
@@ -124,7 +124,7 @@
           <NInput
             size="tiny"
             autofocus
-            class="flex-1"
+            class="chapter-title-input flex-1 min-w-0"
             :value="editingTitle"
             :placeholder="renamePlaceholder"
             @update:value="emit('renameInput', $event)"
@@ -134,13 +134,13 @@
         </template>
         <template v-else>
           <span
-            class="flex-1 text-sm truncate cursor-pointer"
+            class="chapter-title flex-1 min-w-0 cursor-pointer text-sm"
             @click="emit('select', chapter)"
             @dblclick="emit('renameStart', chapter)">{{ chapter.title }}</span>
         </template>
         <NDropdown :options="getActionOptions(chapter)" trigger="click" placement="bottom-end"
           @select="handleAction($event, chapter)">
-          <NButton quaternary size="tiny" @click.stop class="action-btn">
+          <NButton quaternary size="tiny" @click.stop class="action-btn shrink-0">
             <span class="i-carbon-overflow-menu-horizontal text-xs" />
           </NButton>
         </NDropdown>
@@ -175,6 +175,16 @@
   .chapter-item {
     color: var(--text-secondary);
     transition: background 0.15s ease, color 0.15s ease;
+  }
+
+  .chapter-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .chapter-title-input {
+    min-width: 0;
   }
 
   .chapter-item:hover {

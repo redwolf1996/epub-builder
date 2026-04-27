@@ -8,6 +8,7 @@ import {
   buildTocXhtmlBody,
   buildTocNcxBody,
   getMaxTocDepth,
+  validateExportPayload,
 } from '@/utils/epub'
 
 const chapters: Chapter[] = [
@@ -68,13 +69,15 @@ describe('deduplicateChapterTitle', () => {
 describe('buildChapterBody', () => {
   it('keeps a stable heading anchor even when the chapter has no body', () => {
     const body = buildChapterBody('Chapter', '', 'chapter-1')
-    expect(body).toContain('<h1 id="chapter-1">Chapter</h1>')
+    expect(body).toContain('<h1 id="chapter-1"')
+    expect(body).toContain('>Chapter</h1>')
     expect(body).toContain('<p></p>')
   })
 
   it('deduplicates a repeated markdown heading from the body', () => {
     const body = buildChapterBody('Chapter', '<h1>Chapter</h1><p>Text</p>', 'chapter-1')
-    expect(body).toContain('<h1 id="chapter-1">Chapter</h1>')
+    expect(body).toContain('<h1 id="chapter-1"')
+    expect(body).toContain('>Chapter</h1>')
     expect(body).not.toContain('<h1>Chapter</h1><p>Text</p>')
     expect(body).toContain('<p>Text</p>')
   })
@@ -86,7 +89,8 @@ describe('export chapter model', () => {
     expect(result.map((chapter) => chapter.title)).toEqual(['Root 1', 'Child 1', 'Child 2', 'Root 2'])
     expect(result[0].tocHref).toBe(`${result[0].filename}#chapter-root-1`)
     expect(result[1].depth).toBe(1)
-    expect(result[2].content).toContain('<h1 id="chapter-child-2">Child 2</h1>')
+    expect(result[2].content).toContain('<h1 id="chapter-child-2"')
+    expect(result[2].content).toContain('>Child 2</h1>')
   })
 
   it('builds a tree that preserves nested chapter relationships', () => {
@@ -116,5 +120,48 @@ describe('TOC rendering', () => {
     expect(ncx).toContain('playOrder="1"')
     expect(ncx).toContain('<navPoint id="nav-root-1"')
     expect(ncx).toContain(`<content src="${tree[0].children[1].filename}#chapter-child-2"/>`)
+  })
+})
+
+describe('validateExport', () => {
+  it('reports blocking errors for missing title and chapters', async () => {
+    expect(validateExportPayload('', [])).toEqual({
+      blockingErrors: ['Book title is required for export', 'No chapters to export'],
+      warnings: [],
+    })
+  })
+
+  it('reports warnings for duplicate titles and large embedded images', async () => {
+    const largeBase64 = `data:image/png;base64,${'a'.repeat(1_400_000)}`
+    const warningChapters: Chapter[] = [
+      {
+        id: 'chapter-1',
+        bookId: 'book-1',
+        parentId: null,
+        title: 'Intro',
+        content: `![hero](${largeBase64})`,
+        order: 0,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      {
+        id: 'chapter-2',
+        bookId: 'book-1',
+        parentId: null,
+        title: 'Intro',
+        content: 'Body',
+        order: 1,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    ]
+
+    expect(validateExportPayload('Demo', warningChapters)).toEqual({
+      blockingErrors: [],
+      warnings: [
+        'Duplicate chapter titles may make the table of contents harder to scan',
+        'Large embedded images may affect export size and reader compatibility',
+      ],
+    })
   })
 })

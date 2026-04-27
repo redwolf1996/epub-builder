@@ -5,7 +5,7 @@ import { useChapter } from '@/composables/useChapter'
 import type { Book } from '@/types'
 
 export const useBookStore = defineStore('book', () => {
-  const { books, loading: bookLoading, loadBooks, getBook, createBook, updateBookMeta: persistBookMeta, deleteBook } = useBook()
+  const { books, loading: bookLoading, loadBooks, getBook, getChapterCounts, createBook, updateBookMeta: persistBookMeta, deleteBook } = useBook()
   const {
     chapters,
     currentChapter,
@@ -78,6 +78,7 @@ export const useBookStore = defineStore('book', () => {
     initBookList,
     openBook,
     getBook,
+    getChapterCounts,
     createBook,
     updateBookMeta,
     deleteBook,

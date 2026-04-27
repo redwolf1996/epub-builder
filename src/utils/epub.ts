@@ -20,6 +20,11 @@ type ExportChapterNode = ExportChapter & {
   children: ExportChapterNode[]
 }
 
+export type ExportValidationResult = {
+  blockingErrors: string[]
+  warnings: string[]
+}
+
 export type DownloadEpubResult =
   | { status: 'saved'; filePath?: string }
   | { status: 'cancelled' }
@@ -210,6 +215,75 @@ function validateExportChapters(chapters: ExportChapter[]) {
       throw new Error(`Duplicate TOC target: ${chapter.tocHref}`)
     }
     hrefs.add(chapter.tocHref)
+  }
+}
+
+function collectEmbeddedImageWarnings(chapters: Chapter[]): string[] {
+  const maxEmbeddedImageBytes = 1_000_000
+
+  for (const chapter of chapters) {
+    const matches = chapter.content.match(/!\[[^\]]*]\((data:image\/[^)]+)\)/g) ?? []
+    for (const match of matches) {
+      const base64 = match.match(/base64,([A-Za-z0-9+/=]+)/)?.[1]
+      if (!base64) continue
+
+      const estimatedBytes = Math.floor(base64.length * 0.75)
+      if (estimatedBytes > maxEmbeddedImageBytes) {
+        return ['Large embedded images may affect export size and reader compatibility']
+      }
+    }
+  }
+
+  return []
+}
+
+export async function validateExport(bookId: string): Promise<ExportValidationResult> {
+  const book = await db.books.get(bookId)
+  if (!book) {
+    return {
+      blockingErrors: ['Book not found'],
+      warnings: [],
+    }
+  }
+
+  const chapters = await db.chapters
+    .where('bookId')
+    .equals(bookId)
+    .sortBy('order')
+
+  return validateExportPayload(book.meta.title, chapters)
+}
+
+export function validateExportPayload(bookTitle: string, chapters: Chapter[]): ExportValidationResult {
+  const blockingErrors: string[] = []
+  const warnings: string[] = []
+
+  if (!bookTitle.trim()) {
+    blockingErrors.push('Book title is required for export')
+  }
+
+  if (chapters.length === 0) {
+    blockingErrors.push('No chapters to export')
+  }
+
+  const emptyChapterTitles = chapters.some((chapter) => !chapter.title.trim())
+  if (emptyChapterTitles) {
+    blockingErrors.push('Every chapter must have a title before export')
+  }
+
+  const normalizedTitles = chapters
+    .map((chapter) => chapter.title.trim().toLocaleLowerCase())
+    .filter(Boolean)
+  const hasDuplicateTitles = new Set(normalizedTitles).size !== normalizedTitles.length
+  if (hasDuplicateTitles) {
+    warnings.push('Duplicate chapter titles may make the table of contents harder to scan')
+  }
+
+  warnings.push(...collectEmbeddedImageWarnings(chapters))
+
+  return {
+    blockingErrors,
+    warnings,
   }
 }
 

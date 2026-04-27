@@ -89,7 +89,8 @@ onBeforeUnmount(() => {
 })
 
 const handleBack = () => {
-  router.back()
+  void bookStore.initBookList()
+  router.push('/')
 }
 
 const handleDateChange = (val: number | null) => {
@@ -113,7 +114,8 @@ const handleSave = async () => {
     isNewBook.value = false
     router.push(`/editor/${bookId}`)
   } else {
-    router.back()
+    await bookStore.initBookList()
+    router.push('/')
   }
 }
 

@@ -10,9 +10,8 @@
     "lint": "oxlint .",
     "format": "oxfmt --write .",
     "tauri": "tauri",
-    "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build",
-    "tauri:build:open": "tauri build && explorer src-tauri\\target\\release\\bundle || exit 0",
+    "td": "tauri dev",
+    "tb": "tauri build && explorer src-tauri\\target\\release\\bundle || exit 0",
     "test": "vitest",
     "test:run": "vitest run"
   },

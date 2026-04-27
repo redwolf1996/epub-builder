@@ -15,6 +15,7 @@
   const themeStore = useThemeStore()
   const bookStore = useBookStore()
   const { t, locale } = useI18n()
+  const MENU_VISIBLE_KEY = 'epub-builder-menu-visible'
 
   const isHome = computed(() => route.path === '/')
   const bookTitle = computed(() => {
@@ -44,6 +45,17 @@
   // 原生菜单事件监听 + 动态创建
   let menuUnlisten: (() => void) | null = null
   let menuVisible = true
+
+  const getStoredMenuVisible = () => {
+    if (!isTauri()) return true
+    return localStorage.getItem(MENU_VISIBLE_KEY) !== 'false'
+  }
+
+  const setStoredMenuVisible = (visible: boolean) => {
+    menuVisible = visible
+    if (!isTauri()) return
+    localStorage.setItem(MENU_VISIBLE_KEY, String(visible))
+  }
 
   async function buildNativeMenu() {
     if (!isTauri()) return
@@ -97,16 +109,25 @@
     } catch (e) { console.error('buildNativeMenu failed', e) }
   }
 
-  async function toggleMenuVisibility() {
+  async function applyMenuVisibility(visible: boolean) {
     if (!isTauri()) return
     try {
       const { invoke } = await import('@tauri-apps/api/core')
-      menuVisible = await invoke<boolean>('toggle_menu', { visible: menuVisible })
+      const appliedVisible = await invoke<boolean>('toggle_menu', { visible })
+      setStoredMenuVisible(appliedVisible)
+    } catch (e) { console.error('applyMenuVisibility failed', e) }
+  }
+
+  async function toggleMenuVisibility() {
+    if (!isTauri()) return
+    try {
+      await applyMenuVisibility(!menuVisible)
     } catch (e) { console.error('toggleMenuVisibility failed', e) }
   }
 
   onMounted(async () => {
     if (!isTauri()) return
+    menuVisible = getStoredMenuVisible()
     try {
       const { listen } = await import('@tauri-apps/api/event')
       menuUnlisten = await listen<string>('menu-event', (event) => {
@@ -138,12 +159,20 @@
         }
       })
       await buildNativeMenu()
+      if (!menuVisible) {
+        await applyMenuVisibility(false)
+      }
     } catch { }
   })
 
   // 语言切换时重建菜单
   watch(locale, () => {
-    buildNativeMenu()
+    if (!isTauri()) return
+    buildNativeMenu().then(() => {
+      if (!menuVisible) {
+        applyMenuVisibility(false)
+      }
+    })
   })
 
   onBeforeUnmount(() => {
@@ -213,6 +242,10 @@
   }
 
   const handleKeydown = (e: KeyboardEvent) => {
+    if (isTauri() && (e.key === 'F5' || (e.key.toLowerCase() === 'r' && e.ctrlKey))) {
+      e.preventDefault()
+      return
+    }
     if (e.key === 'Escape' && appFullscreen.value) {
       toggleAppFullscreen()
     }

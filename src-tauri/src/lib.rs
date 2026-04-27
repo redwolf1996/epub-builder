@@ -77,7 +77,7 @@ async fn toggle_menu(app: tauri::AppHandle, visible: bool) -> Result<bool, Strin
     } else {
         win.hide_menu().map_err(|e| e.to_string())?;
     }
-    Ok(!visible)
+    Ok(visible)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

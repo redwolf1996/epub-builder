@@ -5,7 +5,7 @@ import { useChapter } from '@/composables/useChapter'
 import type { Book } from '@/types'
 
 export const useBookStore = defineStore('book', () => {
-  const { books, loading: bookLoading, loadBooks, getBook, createBook, updateBookMeta, deleteBook } = useBook()
+  const { books, loading: bookLoading, loadBooks, getBook, createBook, updateBookMeta: persistBookMeta, deleteBook } = useBook()
   const {
     chapters,
     currentChapter,
@@ -56,6 +56,17 @@ export const useBookStore = defineStore('book', () => {
 
   const renameChapter = async (chapterId: string, title: string) => {
     await updateChapterTitle(chapterId, title)
+  }
+
+  const updateBookMeta = async (id: string, meta: Partial<Book['meta']>) => {
+    const updatedBook = await persistBookMeta(id, meta)
+    if (!updatedBook) return null
+
+    if (activeBook.value?.id === id) {
+      activeBook.value = updatedBook
+    }
+
+    return updatedBook
   }
 
   return {

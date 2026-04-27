@@ -10,21 +10,20 @@
   import { searchKeymap, highlightSelectionMatches } from '@codemirror/search'
   import { oneDarkHighlightStyle } from '@codemirror/theme-one-dark'
   import { tags } from '@lezer/highlight'
+  import type { LineAnchor, ScrollSnapshot } from '@/composables/useScrollSync'
 
   const props = defineProps<{
     modelValue: string
   }>()
-
 
   const editorRef = shallowRef<EditorView | null>(null)
   const containerRef = shallowRef<HTMLElement | null>(null)
 
   const emit = defineEmits<{
     'update:modelValue': [value: string]
-    'scroll': [info: { line: number; offsetY: number }]
+    scroll: []
   }>()
 
-  // 颜色 span 装饰器：解析 <span style="color:xxx">text</span>，标签淡化，文字着色
   const dimTag = Decoration.mark({ class: 'cm-color-span-dim' })
   const colorSpanPlugin = ViewPlugin.fromClass(class {
     decorations: DecorationSet = Decoration.none
@@ -44,23 +43,19 @@
         const openTagEnd = m.index + m[0].indexOf('>') + 1
         const closeTagStart = m.index + m[0].lastIndexOf('<')
         const closeTagEnd = m.index + m[0].length
-        // 淡化开标签
         builder.add(openTagStart, openTagEnd, dimTag)
-        // 文字内容着色
         const css: string[] = []
         if (colorMatch) css.push(`color:${colorMatch[1]}`)
         if (bgColorMatch) css.push(`background-color:${bgColorMatch[1]}`)
         if (css.length > 0) {
           builder.add(openTagEnd, closeTagStart, Decoration.mark({ attributes: { style: css.join(';') } }))
         }
-        // 淡化闭标签
         builder.add(closeTagStart, closeTagEnd, dimTag)
       }
       this.decorations = builder.finish()
     }
   }, { decorations: (v) => v.decorations })
 
-  // base64 图片折叠插件：将 data:image/...;base64,... 替换为短标记
   const base64FoldPlugin = ViewPlugin.fromClass(class {
     decorations: DecorationSet = Decoration.none
     constructor(view: EditorView) { this.build(view) }
@@ -73,7 +68,6 @@
       while ((m = re.exec(doc)) !== null) {
         const from = m.index
         const to = m.index + m[0].length
-        // 如果光标在此范围内，不折叠（方便编辑）
         const sel = view.state.selection.main
         if (sel.from >= from && sel.to <= to) continue
         builder.add(from, to, Decoration.replace({
@@ -88,7 +82,7 @@
     toDOM() {
       const span = document.createElement('span')
       span.className = 'cm-base64-folded'
-      span.textContent = '📎 base64 image'
+      span.textContent = '馃搸 base64 image'
       return span
     }
     ignoreEvent() { return false }
@@ -118,7 +112,7 @@
       fontSize: '14px',
     },
     '.cm-line, .cm-gutters': {
-      fontFamily: "'Microsoft YaHei', '微软雅黑', sans-serif",
+      fontFamily: "'Microsoft YaHei', '寰蒋闆呴粦', sans-serif",
     },
     '.cm-content': {
       padding: '16px 0',
@@ -216,6 +210,10 @@
     ]
   }
 
+  const getEditorScroller = (): HTMLElement | null => {
+    return editorRef.value?.scrollDOM ?? null
+  }
+
   onMounted(() => {
     if (!containerRef.value) return
 
@@ -229,13 +227,11 @@
       parent: containerRef.value,
     })
 
-    const scroller = editorRef.value.dom.querySelector('.cm-scroller')
-    scroller?.addEventListener('scroll', onEditorScroll, { passive: true })
+    getEditorScroller()?.addEventListener('scroll', onEditorScroll, { passive: true })
   })
 
   onBeforeUnmount(() => {
-    const scroller = editorRef.value?.dom.querySelector('.cm-scroller')
-    scroller?.removeEventListener('scroll', onEditorScroll)
+    getEditorScroller()?.removeEventListener('scroll', onEditorScroll)
     if (scrollRafId) cancelAnimationFrame(scrollRafId)
     editorRef.value?.destroy()
   })
@@ -257,7 +253,6 @@
     },
   )
 
-  /** 判断行首是否为 Markdown 语法，跳过标题/引用/列表/代码/表格等 */
   function isMarkdownLine(text: string): boolean {
     return /^[#>*+\-`|~!\[_]|^\d+[.]|^(\*{2,}|_{2,})/.test(text)
   }
@@ -267,24 +262,45 @@
     if (scrollRafId) return
     scrollRafId = requestAnimationFrame(() => {
       scrollRafId = 0
-      if (!editorRef.value) return
-      const view = editorRef.value
-      const scroller = view.dom.querySelector('.cm-scroller') as HTMLElement | null
-      if (!scroller) return
-      // 直接从 CodeMirror 视口获取首行行号
-      const line = view.state.doc.lineAt(view.viewport.from).number
-      // 获取该行的视觉位置，计算距视口顶部的像素偏移
-      const lineStart = view.state.doc.line(line).from
-      const block = view.lineBlockAt(lineStart)
-      const offsetY = block.top - scroller.scrollTop
-      emit('scroll', { line, offsetY })
+      emit('scroll')
     })
   }
 
+  const getScrollSnapshot = (): ScrollSnapshot | null => {
+    const scroller = getEditorScroller()
+    if (!scroller) return null
+
+    return {
+      scrollTop: scroller.scrollTop,
+      viewportHeight: scroller.clientHeight,
+      contentHeight: scroller.scrollHeight,
+    }
+  }
+
+  const getPositionMap = (): LineAnchor[] => {
+    if (!editorRef.value) return []
+
+    return editorRef.value.viewportLineBlocks.map((block) => ({
+      line: editorRef.value!.state.doc.lineAt(block.from).number,
+      top: block.top,
+      bottom: block.bottom,
+    }))
+  }
+
+  const setScrollTop = (top: number) => {
+    const scroller = getEditorScroller()
+    if (!scroller) return
+    scroller.scrollTop = top
+  }
+
   defineExpose({
+    getScrollSnapshot,
+    getPositionMap,
+    setScrollTop,
     scrollToLine: (line: number) => {
       if (!editorRef.value) return
-      const pos = editorRef.value.state.doc.line(line).from
+      const safeLine = Math.min(Math.max(line, 1), editorRef.value.state.doc.lines)
+      const pos = editorRef.value.state.doc.line(safeLine).from
       editorRef.value.dispatch({
         effects: EditorView.scrollIntoView(pos, { y: 'start' }),
       })

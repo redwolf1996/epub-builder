@@ -1,77 +1,98 @@
 <script setup lang="ts">
-  import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
+  import { computed, ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
   import { renderMarkdown } from '@/utils/markdown'
+  import type { LineAnchor, ScrollSnapshot } from '@/composables/useScrollSync'
 
   const props = defineProps<{
     content: string
   }>()
 
   const emit = defineEmits<{
-    'scroll': [line: number]
+    scroll: []
   }>()
 
   const html = computed(() => renderMarkdown(props.content))
   const previewRef = ref<HTMLElement | null>(null)
+  const dataLineElements = ref<HTMLElement[]>([])
 
   const previewTheme = ref<'default' | 'parchment' | 'sepia'>('default')
 
-  const scrollToLine = (line: number, offsetY = 0) => {
-    if (!previewRef.value) return
-    // 查找 data-line 匹配的元素，找不到则取最近的
-    let el = previewRef.value.querySelector(`[data-line="${line}"]`) as HTMLElement | null
-    if (!el) {
-      el = findClosestElement(line)
+  const rebuildDataLineElements = async () => {
+    await nextTick()
+    if (!previewRef.value) {
+      dataLineElements.value = []
+      return
     }
-    if (el) {
-      const containerRect = previewRef.value.getBoundingClientRect()
-      const elRect = el.getBoundingClientRect()
-      const elOffsetFromTop = elRect.top - containerRect.top + previewRef.value.scrollTop
-      // 将元素定位到与编辑器相同的偏移位置
-      previewRef.value.scrollTop = elOffsetFromTop - offsetY
-    }
-  }
 
-  const getDataLineElements = (): HTMLElement[] => {
-    if (!previewRef.value) return []
-    return Array.from(previewRef.value.querySelectorAll('[data-line]')) as HTMLElement[]
+    dataLineElements.value = Array.from(previewRef.value.querySelectorAll('[data-line]')) as HTMLElement[]
   }
 
   const findClosestElement = (line: number): HTMLElement | null => {
-    const elements = getDataLineElements()
+    const elements = dataLineElements.value
     if (elements.length === 0) return null
-    let lo = 0, hi = elements.length - 1
+
+    let lo = 0
+    let hi = elements.length - 1
     while (lo < hi) {
       const mid = (lo + hi) >> 1
       if (Number(elements[mid].dataset.line) < line) lo = mid + 1
       else hi = mid
     }
-    // lo 是第一个 >= line 的，比较 lo 和 lo-1 谁更近
-    const el = elements[lo]
-    const prev = lo > 0 ? elements[lo - 1] : null
-    if (!prev) return el
-    const diffEl = Math.abs(Number(el.dataset.line) - line)
-    const diffPrev = Math.abs(Number(prev.dataset.line) - line)
-    return diffPrev <= diffEl ? prev : el
+
+    const current = elements[lo]
+    const previous = lo > 0 ? elements[lo - 1] : null
+    if (!previous) return current
+
+    const currentDiff = Math.abs(Number(current.dataset.line) - line)
+    const previousDiff = Math.abs(Number(previous.dataset.line) - line)
+    return previousDiff <= currentDiff ? previous : current
   }
 
-  const getVisibleLine = (): number => {
-    if (!previewRef.value) return 0
-    const containerTop = previewRef.value.getBoundingClientRect().top
-    const elements = getDataLineElements()
-    if (elements.length === 0) return 0
-    // 二分查找：找到第一个 top >= containerTop 的元素
-    let lo = 0, hi = elements.length - 1
-    while (lo < hi) {
-      const mid = (lo + hi) >> 1
-      if (elements[mid].getBoundingClientRect().top < containerTop) lo = mid + 1
-      else hi = mid
+  const scrollToLine = (line: number, offsetY = 0) => {
+    if (!previewRef.value) return
+
+    const exact = dataLineElements.value.find((element) => Number(element.dataset.line) === line) ?? null
+    const element = exact || findClosestElement(line)
+    if (!element) return
+
+    const containerRect = previewRef.value.getBoundingClientRect()
+    const elementRect = element.getBoundingClientRect()
+    const elementOffsetFromTop = elementRect.top - containerRect.top + previewRef.value.scrollTop
+    previewRef.value.scrollTop = elementOffsetFromTop - offsetY
+  }
+
+  const getScrollSnapshot = (): ScrollSnapshot | null => {
+    if (!previewRef.value) return null
+
+    return {
+      scrollTop: previewRef.value.scrollTop,
+      viewportHeight: previewRef.value.clientHeight,
+      contentHeight: previewRef.value.scrollHeight,
     }
-    // lo 是第一个进入视口的元素，但可能 lo-1 跨越视口顶部（部分可见）
-    if (lo > 0) {
-      const prevRect = elements[lo - 1].getBoundingClientRect()
-      if (prevRect.bottom > containerTop) return Number(elements[lo - 1].dataset.line)
-    }
-    return Number(elements[lo].dataset.line)
+  }
+
+  const getPositionMap = (): LineAnchor[] => {
+    if (!previewRef.value) return []
+
+    const containerRect = previewRef.value.getBoundingClientRect()
+    const containerScrollTop = previewRef.value.scrollTop
+
+    return dataLineElements.value
+      .map((element) => {
+        const line = Number(element.dataset.line)
+        if (!Number.isFinite(line)) return null
+
+        const rect = element.getBoundingClientRect()
+        const top = rect.top - containerRect.top + containerScrollTop
+        const bottom = rect.bottom - containerRect.top + containerScrollTop
+        return { line, top, bottom }
+      })
+      .filter((anchor): anchor is LineAnchor => anchor !== null)
+  }
+
+  const setScrollTop = (top: number) => {
+    if (!previewRef.value) return
+    previewRef.value.scrollTop = top
   }
 
   let scrollRafId = 0
@@ -79,7 +100,7 @@
     if (scrollRafId) return
     scrollRafId = requestAnimationFrame(() => {
       scrollRafId = 0
-      emit('scroll', getVisibleLine())
+      emit('scroll')
     })
   }
 
@@ -89,7 +110,8 @@
     previewTheme.value = themes[(idx + 1) % themes.length]
   }
 
-  onMounted(() => {
+  onMounted(async () => {
+    await rebuildDataLineElements()
     previewRef.value?.addEventListener('scroll', onScroll, { passive: true })
   })
 
@@ -98,7 +120,18 @@
     if (scrollRafId) cancelAnimationFrame(scrollRafId)
   })
 
-  defineExpose({ scrollToLine, cycleTheme, previewTheme })
+  watch(html, () => {
+    void rebuildDataLineElements()
+  })
+
+  defineExpose({
+    scrollToLine,
+    getScrollSnapshot,
+    getPositionMap,
+    setScrollTop,
+    cycleTheme,
+    previewTheme,
+  })
 </script>
 
 <template>

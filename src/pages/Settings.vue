@@ -31,6 +31,7 @@ const dateTimestamp = ref<number | null>(null)
 const saveStatus = ref<SaveStatus>('idle')
 const isDragOver = ref(false)
 const isCompressing = ref(false)
+let lastSaveTask: Promise<void> | null = null
 
 onMounted(async () => {
   const book = await bookStore.getBook(bookId)
@@ -45,11 +46,15 @@ onMounted(async () => {
 })
 
 // --- 自动保存 ---
-const autoSave = debounce(async () => {
+const persistMeta = async () => {
   if (!meta.value.title.trim()) return
   saveStatus.value = 'saving'
   await bookStore.updateBookMeta(bookId, { ...meta.value })
   saveStatus.value = 'saved'
+}
+
+const autoSave = debounce(() => {
+  lastSaveTask = persistMeta()
 }, 500)
 
 watch(meta, () => {
@@ -59,15 +64,17 @@ watch(meta, () => {
   autoSave()
 }, { deep: true })
 
-const flushSave = () => {
+const flushSave = async () => {
   if (saveStatus.value === 'dirty') {
     autoSave.flush()
-    saveStatus.value = 'saved'
+  }
+  if (lastSaveTask) {
+    await lastSaveTask
   }
 }
 
 onBeforeRouteLeave(() => {
-  flushSave()
+  void flushSave()
   return true
 })
 
@@ -99,8 +106,8 @@ const handleSave = async () => {
     message.warning(t('settings.titleRequired'))
     return
   }
-  await bookStore.updateBookMeta(bookId, { ...meta.value })
-  saveStatus.value = 'saved'
+  autoSave.cancel()
+  await persistMeta()
   message.success(t('settings.saved'))
   if (isNewBook.value) {
     isNewBook.value = false

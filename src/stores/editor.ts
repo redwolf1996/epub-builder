@@ -7,15 +7,20 @@ export type SaveStatus = 'idle' | 'dirty' | 'saving' | 'saved'
 
 export const useEditorStore = defineStore('editor', () => {
   const content = ref('')
-  const previewMode = ref(false) // 手机端切换编辑/预览
+  const previewMode = ref(false)
   const saveStatus = ref<SaveStatus>('idle')
 
   const bookStore = useBookStore()
+  let lastSaveTask: Promise<void> | null = null
 
-  const autoSave = debounce(async (value: string) => {
+  const persistContent = async (value: string) => {
     saveStatus.value = 'saving'
     await bookStore.saveCurrentChapter(value)
-    saveStatus.value = 'saved'
+    saveStatus.value = content.value === value ? 'saved' : 'dirty'
+  }
+
+  const autoSave = debounce((value: string) => {
+    lastSaveTask = persistContent(value)
   }, 500)
 
   const setContent = (value: string) => {
@@ -24,9 +29,12 @@ export const useEditorStore = defineStore('editor', () => {
     autoSave(value)
   }
 
-  const flushSave = () => {
+  const flushSave = async () => {
     if (saveStatus.value === 'dirty') {
       autoSave.flush(content.value)
+    }
+    if (lastSaveTask) {
+      await lastSaveTask
     }
   }
 
@@ -43,6 +51,7 @@ export const useEditorStore = defineStore('editor', () => {
   })
 
   const loadChapterContent = (chapterContent: string) => {
+    cancelPendingSave()
     content.value = chapterContent
     saveStatus.value = 'idle'
   }

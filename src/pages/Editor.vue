@@ -159,8 +159,10 @@
 
   const handleExport = async () => {
     try {
+      await editorStore.flushSave()
       const title = bookStore.activeBook?.meta.title || t('editor.exportEpub')
-      await doExport(bookId, title)
+      const result = await doExport(bookId, title)
+      if (result.status !== 'saved') return
       message.success(t('editor.exportEpub'))
       // Tauri 系统通知
       if (isTauri()) {
@@ -179,8 +181,7 @@
     () => bookStore.currentChapter,
     (chapter) => {
       if (chapter) {
-        editorStore.flushSave()
-        editorStore.cancelPendingSave()
+        void editorStore.flushSave()
         editorStore.loadChapterContent(chapter.content)
         cmEditorRef.value?.loadContent(chapter.content)
       }

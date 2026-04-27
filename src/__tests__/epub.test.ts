@@ -1,64 +1,120 @@
 import { describe, it, expect } from 'vitest'
-import { deduplicateChapterTitle, prependChapterTitle, encodeDepth } from '@/utils/epub'
+import type { Chapter } from '@/types'
+import {
+  deduplicateChapterTitle,
+  buildChapterBody,
+  buildExportChapters,
+  buildExportChapterTree,
+  buildTocXhtmlBody,
+  buildTocNcxBody,
+  getMaxTocDepth,
+} from '@/utils/epub'
+
+const chapters: Chapter[] = [
+  {
+    id: 'root-1',
+    bookId: 'book-1',
+    parentId: null,
+    title: 'Root 1',
+    content: '# Root 1\n\nIntro',
+    order: 0,
+    createdAt: 1,
+    updatedAt: 1,
+  },
+  {
+    id: 'child-1',
+    bookId: 'book-1',
+    parentId: 'root-1',
+    title: 'Child 1',
+    content: 'Child body',
+    order: 0,
+    createdAt: 1,
+    updatedAt: 1,
+  },
+  {
+    id: 'child-2',
+    bookId: 'book-1',
+    parentId: 'root-1',
+    title: 'Child 2',
+    content: '',
+    order: 1,
+    createdAt: 1,
+    updatedAt: 1,
+  },
+  {
+    id: 'root-2',
+    bookId: 'book-1',
+    parentId: null,
+    title: 'Root 2',
+    content: 'Root 2 body',
+    order: 1,
+    createdAt: 1,
+    updatedAt: 1,
+  },
+]
 
 describe('deduplicateChapterTitle', () => {
-  it('标题匹配时去除首行 h 标签', () => {
+  it('removes a duplicate first heading', () => {
     const html = '<h1>Chapter 1</h1><p>Content</p>'
     expect(deduplicateChapterTitle(html, 'Chapter 1')).toBe('<p>Content</p>')
   })
 
-  it('标题不匹配时原样返回', () => {
+  it('keeps the original html when the first heading differs', () => {
     const html = '<h1>Different</h1><p>Content</p>'
     expect(deduplicateChapterTitle(html, 'Chapter 1')).toBe(html)
   })
+})
 
-  it('无标题行时原样返回', () => {
-    const html = '<p>No heading here</p>'
-    expect(deduplicateChapterTitle(html, 'Chapter 1')).toBe(html)
+describe('buildChapterBody', () => {
+  it('keeps a stable heading anchor even when the chapter has no body', () => {
+    const body = buildChapterBody('Chapter', '', 'chapter-1')
+    expect(body).toContain('<h1 id="chapter-1">Chapter</h1>')
+    expect(body).toContain('<p></p>')
   })
 
-  it('匹配 h2~h6', () => {
-    const html = '<h2>Sub</h2><p>Text</p>'
-    expect(deduplicateChapterTitle(html, 'Sub')).toBe('<p>Text</p>')
-  })
-
-  it('标题匹配时去除带属性的 h 标签（如 data-line）', () => {
-    const html = '<h1 data-line="1">Chapter 1</h1><p>Content</p>'
-    expect(deduplicateChapterTitle(html, 'Chapter 1')).toBe('<p>Content</p>')
-  })
-
-  it('带属性但标题不匹配时原样返回', () => {
-    const html = '<h1 data-line="1">Different</h1><p>Content</p>'
-    expect(deduplicateChapterTitle(html, 'Chapter 1')).toBe(html)
+  it('deduplicates a repeated markdown heading from the body', () => {
+    const body = buildChapterBody('Chapter', '<h1>Chapter</h1><p>Text</p>', 'chapter-1')
+    expect(body).toContain('<h1 id="chapter-1">Chapter</h1>')
+    expect(body).not.toContain('<h1>Chapter</h1><p>Text</p>')
+    expect(body).toContain('<p>Text</p>')
   })
 })
 
-describe('prependChapterTitle', () => {
-  it('depth=0 生成 h1 + 2em', () => {
-    const result = prependChapterTitle('Title', 0)
-    expect(result).toContain('<h1')
-    expect(result).toContain('font-size:2em')
+describe('export chapter model', () => {
+  it('builds chapters with real titles and explicit TOC hrefs', () => {
+    const result = buildExportChapters(chapters)
+    expect(result.map((chapter) => chapter.title)).toEqual(['Root 1', 'Child 1', 'Child 2', 'Root 2'])
+    expect(result[0].tocHref).toBe(`${result[0].filename}#chapter-root-1`)
+    expect(result[1].depth).toBe(1)
+    expect(result[2].content).toContain('<h1 id="chapter-child-2">Child 2</h1>')
   })
 
-  it('depth=5 生成 h6 + 0.9em', () => {
-    const result = prependChapterTitle('Title', 5)
-    expect(result).toContain('<h6')
-    expect(result).toContain('font-size:0.9em')
+  it('builds a tree that preserves nested chapter relationships', () => {
+    const result = buildExportChapterTree(buildExportChapters(chapters))
+    expect(result).toHaveLength(2)
+    expect(result[0].children.map((child) => child.title)).toEqual(['Child 1', 'Child 2'])
   })
 
-  it('depth>5 饱和为 h6 + 0.9em', () => {
-    const result = prependChapterTitle('Title', 10)
-    expect(result).toContain('<h6')
-    expect(result).toContain('font-size:0.9em')
+  it('reports the actual maximum TOC depth', () => {
+    const result = buildExportChapters(chapters)
+    expect(getMaxTocDepth(result)).toBe(2)
   })
 })
 
-describe('encodeDepth', () => {
-  it('编码深度到标题', () => {
-    expect(encodeDepth('Chapter 1', 2)).toBe('D2|Chapter 1')
+describe('TOC rendering', () => {
+  it('renders nested ol/li markup for toc.xhtml', () => {
+    const tree = buildExportChapterTree(buildExportChapters(chapters))
+    const toc = buildTocXhtmlBody(tree)
+    expect(toc).toContain('<ol>')
+    expect(toc).toContain('Child 1')
+    expect(toc).toContain(`${tree[0].children[0].filename}#chapter-child-1`)
   })
 
-  it('depth=0', () => {
-    expect(encodeDepth('Root', 0)).toBe('D0|Root')
+  it('renders nested navPoint markup for toc.ncx with anchored targets', () => {
+    const tree = buildExportChapterTree(buildExportChapters(chapters))
+    const ncx = buildTocNcxBody(tree)
+    expect(ncx).toContain('playOrder="1"')
+    expect(ncx).toContain('<navPoint id="nav-root-1"')
+    expect(ncx).toContain(`<content src="${tree[0].children[1].filename}#chapter-child-2"/>`)
   })
 })

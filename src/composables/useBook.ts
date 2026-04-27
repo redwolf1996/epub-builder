@@ -31,14 +31,13 @@ export function useBook() {
     }
     await db.books.add(book)
 
-    // 创建默认第一章
     const chapterId = crypto.randomUUID()
     await db.chapters.add({
       id: chapterId,
       bookId: id,
       parentId: null,
-      title: '第一章',
-      content: '# 第一章\n\n开始书写你的故事...',
+      title: '绗竴绔?',
+      content: '# 绗竴绔燶n\n寮€濮嬩功鍐欎綘鐨勬晠浜?..',
       order: 0,
       createdAt: now,
       updatedAt: now,
@@ -47,14 +46,26 @@ export function useBook() {
     return id
   }
 
-  const updateBookMeta = async (id: string, meta: Partial<BookMeta>) => {
+  const updateBookMeta = async (id: string, meta: Partial<BookMeta>): Promise<Book | null> => {
     const book = await db.books.get(id)
-    if (!book) return
+    if (!book) return null
 
-    await db.books.update(id, {
+    const updatedAt = Date.now()
+    const updatedBook: Book = {
+      ...book,
       meta: { ...book.meta, ...meta },
-      updatedAt: Date.now(),
-    })
+      updatedAt,
+    }
+
+    await db.books.put(updatedBook)
+
+    const index = books.value.findIndex((item) => item.id === id)
+    if (index !== -1) {
+      books.value.splice(index, 1, updatedBook)
+      books.value.sort((a, b) => b.updatedAt - a.updatedAt)
+    }
+
+    return updatedBook
   }
 
   const deleteBook = async (id: string) => {

@@ -1,198 +1,290 @@
-import { renderMarkdown } from '@/utils/markdown'
+import { renderExportMarkdown } from '@/utils/markdown'
 import { db } from '@/db'
 import type { BookMeta, Chapter } from '@/types'
 import type { Options, Content } from 'epub-gen-memory'
 
-/**
- * 如果 Markdown 渲染后的 HTML 首行标题与章节标题相同，则去除该标题避免重复
- * 匹配 h1~h6
- */
-export function deduplicateChapterTitle(html: string, chapterTitle: string): string {
-  const hMatch = html.match(/^\s*<h([1-6])(?:\s[^>]*)?>(.*?)<\/h[1-6]>/)
-  if (hMatch) {
-    const headingText = hMatch[2].replace(/<[^>]*>/g, '').trim()
-    if (headingText === chapterTitle.trim()) {
-      return html.slice(hMatch[0].length)
-    }
-  }
-  return html
+type ExportChapter = {
+  id: string
+  title: string
+  content: string
+  filename: string
+  author: string[]
+  excludeFromToc?: boolean
+  beforeToc?: boolean
+  depth: number
+  anchor: string
+  tocHref: string
 }
 
-/**
- * 根据层级深度生成章节标题 HTML
- * depth=0 → h1 (2em), depth=1 → h2 (1.5em), depth=2 → h3 (1.25em) ...
- */
-export function prependChapterTitle(title: string, depth: number): string {
-  const level = Math.min(depth + 1, 6)
-  const sizes = ['2em', '1.5em', '1.25em', '1.1em', '1em', '0.9em']
-  const fontSize = sizes[depth] ?? '0.9em'
-  return `<h${level} style="font-size:${fontSize};font-weight:bold;color:#00aa44;margin:0.5em 0">${title}</h${level}>`
+type ExportChapterNode = ExportChapter & {
+  children: ExportChapterNode[]
 }
 
-/** 将层级深度编码到标题中，供 TOC 模板解析 */
-export function encodeDepth(title: string, depth: number): string {
-  return `D${depth}|${title}`
-}
+export type DownloadEpubResult =
+  | { status: 'saved'; filePath?: string }
+  | { status: 'cancelled' }
 
-/** 自定义 toc.xhtml 模板：嵌套 ol 结构，EPUB 阅读器会显示树形展开/收起箭头 */
 const tocXHTMLTemplate = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="<%- lang %>" lang="<%- lang %>">
 <head>
-    <title><%= title %></title>
-    <meta charset="UTF-8" />
-    <link rel="stylesheet" type="text/css" href="style.css" />
+  <meta charset="UTF-8" />
+  <title><%= title %></title>
+  <link rel="stylesheet" type="text/css" href="style.css" />
 </head>
 <body>
-    <h1 class="h1"><%= tocTitle %></h1>
-    <nav id="toc" epub:type="toc">
-<% var _stack = []; %>
-<% content.forEach(function(item, index){ %>
-  <% if(!item.excludeFromToc){
-     var _t = item.title, _d = 0;
-     var _p = _t.split('|');
-     var _mm = _p[0].match(/^D(\\d+)$/);
-     if(_mm){ _d = parseInt(_mm[1]); _t = _p.slice(1).join('|'); }
-     // 回到更浅层级：关闭深层
-     while(_stack.length > _d){ %></li></ol><% _stack.pop(); } %>
-     <% // 同级：关闭前一个 li %>
-     <% if(_stack.length === _d && _stack.length > 0){ %></li><% } %>
-     <% // 进入更深层：在当前 li 内开新 ol %>
-     <% if(_d > _stack.length){ %><ol style="list-style:none"><% _stack.push(_d); } %>
-     <% // 根级：首次开 ol %>
-     <% if(_stack.length === 0){ %><ol style="list-style:none"><% _stack.push(0); } %>
-            <li class="table-of-content"><a href="<%= item.filename %>"><%= _t %></a>
-<%   } %>
-<% }) %>
-<% // 关闭所有剩余标签 %>
-<% while(_stack.length > 0){ %></li></ol><% _stack.pop(); } %>
-    </nav>
+  <h1 class="h1"><%= tocTitle %></h1>
+  <nav id="toc" epub:type="toc">
+    <%- tocXhtmlBody %>
+  </nav>
 </body>
 </html>`
 
-/** 自定义 toc.ncx 模板：嵌套 navPoint 结构，支持阅读器导航树 */
 const tocNCXTemplate = `<?xml version="1.0" encoding="UTF-8"?>
 <ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
-    <head>
-        <meta name="dtb:uid" content="<%= id %>" />
-        <meta name="dtb:generator" content="epub-gen"/>
-        <meta name="dtb:depth" content="1"/>
-        <meta name="dtb:totalPageCount" content="0"/>
-        <meta name="dtb:maxPageNumber" content="0"/>
-    </head>
-    <docTitle>
-        <text><%= title %></text>
-    </docTitle>
-    <docAuthor>
-        <text><%= author %></text>
-    </docAuthor>
-    <navMap>
-<% var _idx = 0, _stack = []; %>
-<% content.forEach(function(item, index){ %>
-  <% if(!item.excludeFromToc && !item.beforeToc){
-     var _nt = item.title, _d = 0;
-     var _pp = _nt.split('|');
-     var _mm = _pp[0].match(/^D(\\d+)$/);
-     if(_mm){ _d = parseInt(_mm[1]); _nt = _pp.slice(1).join('|'); }
-     // 回到更浅层级：关闭深层 navPoint
-     while(_stack.length > _d){ %></navPoint><% _stack.pop(); } %>
-        <navPoint id="content_<%= index %>_<%= item.id %>" playOrder="<%= _idx++ %>" class="chapter">
-            <navLabel>
-                <text><%= (numberChaptersInTOC ? (1+index) + ". " : "") + _nt %></text>
-            </navLabel>
-            <content src="<%= item.filename %>"/>
-<%     _stack.push(_d); %>
-<%   } %>
-<% }) %>
-<% // 关闭所有剩余 navPoint %>
-<% while(_stack.length > 0){ %></navPoint><% _stack.pop(); } %>
-    </navMap>
+  <head>
+    <meta name="dtb:uid" content="<%= id %>" />
+    <meta name="dtb:generator" content="epub-gen"/>
+    <meta name="dtb:depth" content="<%= tocDepth %>"/>
+    <meta name="dtb:totalPageCount" content="0"/>
+    <meta name="dtb:maxPageNumber" content="0"/>
+  </head>
+  <docTitle>
+    <text><%= title %></text>
+  </docTitle>
+  <docAuthor>
+    <text><%= author.join(', ') %></text>
+  </docAuthor>
+  <navMap>
+    <%- tocNcxBody %>
+  </navMap>
 </ncx>`
 
-/**
- * 生成扉页 HTML
- */
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;')
+}
+
+function escapeXml(value: string): string {
+  return escapeHtml(value)
+}
+
+function isMeaningfulContent(html: string): boolean {
+  return html.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, '').trim().length > 0
+}
+
+function normalizeAuthor(author: string): string[] {
+  return author
+    ? author.split(/[&,，]/).map((item) => item.trim()).filter(Boolean)
+    : ['Unknown Author']
+}
+
+export function deduplicateChapterTitle(html: string, chapterTitle: string): string {
+  const headingMatch = html.match(/^\s*<h([1-6])(?:\s[^>]*)?>(.*?)<\/h[1-6]>/)
+  if (!headingMatch) return html
+
+  const headingText = headingMatch[2].replace(/<[^>]*>/g, '').trim()
+  if (headingText !== chapterTitle.trim()) return html
+
+  return html.slice(headingMatch[0].length).trimStart()
+}
+
+export function buildChapterBody(title: string, html: string, anchor: string): string {
+  const bodyHtml = deduplicateChapterTitle(html, title)
+  const bodyContent = isMeaningfulContent(bodyHtml) ? bodyHtml : '<p></p>'
+  return `<section epub:type="chapter"><h1 id="${escapeHtml(anchor)}">${escapeHtml(title)}</h1>${bodyContent}</section>`
+}
+
+export function flattenChapters(chapters: Chapter[]): Array<Chapter & { depth: number }> {
+  const flatten = (parentId: string | null, depth: number): Array<Chapter & { depth: number }> => {
+    const siblings = chapters
+      .filter((chapter) => chapter.parentId === parentId)
+      .sort((a, b) => a.order - b.order)
+
+    const result: Array<Chapter & { depth: number }> = []
+    for (const chapter of siblings) {
+      result.push({ ...chapter, depth })
+      result.push(...flatten(chapter.id, depth + 1))
+    }
+    return result
+  }
+
+  return flatten(null, 0)
+}
+
+export function buildExportChapters(chapters: Chapter[]): ExportChapter[] {
+  return flattenChapters(chapters).map((chapter, index) => {
+    const anchor = `chapter-${chapter.id}`
+    const filename = `${index + 1}-${chapter.id}.xhtml`
+    const renderedHtml = renderExportMarkdown(chapter.content)
+
+    return {
+      id: chapter.id,
+      title: chapter.title,
+      author: [],
+      content: buildChapterBody(chapter.title, renderedHtml, anchor),
+      filename,
+      depth: chapter.depth,
+      anchor,
+      tocHref: `${filename}#${anchor}`,
+    }
+  })
+}
+
+export function buildExportChapterTree(chapters: ExportChapter[]): ExportChapterNode[] {
+  const roots: ExportChapterNode[] = []
+  const stack: ExportChapterNode[] = []
+
+  for (const chapter of chapters) {
+    const node: ExportChapterNode = { ...chapter, children: [] }
+
+    while (stack.length > chapter.depth) {
+      stack.pop()
+    }
+
+    if (stack.length === 0) {
+      roots.push(node)
+    } else {
+      stack[stack.length - 1].children.push(node)
+    }
+
+    stack.push(node)
+  }
+
+  return roots
+}
+
+export function getMaxTocDepth(chapters: ExportChapter[]): number {
+  if (chapters.length === 0) return 1
+  return Math.max(...chapters.map((chapter) => chapter.depth)) + 1
+}
+
+export function buildTocXhtmlBody(tree: ExportChapterNode[]): string {
+  const renderNodes = (nodes: ExportChapterNode[]): string => {
+    const items = nodes.map((node) => {
+      const children = node.children.length > 0 ? renderNodes(node.children) : ''
+      return `<li class="table-of-content"><a href="${escapeHtml(node.tocHref)}">${escapeHtml(node.title)}</a>${children}</li>`
+    }).join('')
+
+    return `<ol>${items}</ol>`
+  }
+
+  return renderNodes(tree)
+}
+
+export function buildTocNcxBody(tree: ExportChapterNode[]): string {
+  let playOrder = 1
+
+  const renderNodes = (nodes: ExportChapterNode[]): string => {
+    return nodes.map((node) => {
+      const currentPlayOrder = playOrder++
+      const children = node.children.length > 0 ? renderNodes(node.children) : ''
+      return `<navPoint id="nav-${escapeHtml(node.id)}" playOrder="${currentPlayOrder}" class="chapter"><navLabel><text>${escapeXml(node.title)}</text></navLabel><content src="${escapeHtml(node.tocHref)}"/>${children}</navPoint>`
+    }).join('')
+  }
+
+  return renderNodes(tree)
+}
+
+function validateExportChapters(chapters: ExportChapter[]) {
+  const hrefs = new Set<string>()
+
+  for (const chapter of chapters) {
+    if (!chapter.title.trim()) {
+      throw new Error('Chapter title is required for export')
+    }
+    if (!chapter.filename?.endsWith('.xhtml')) {
+      throw new Error(`Invalid chapter filename: ${chapter.filename}`)
+    }
+    if (!chapter.anchor.trim()) {
+      throw new Error(`Missing chapter anchor for ${chapter.id}`)
+    }
+    if (!chapter.tocHref.includes(`#${chapter.anchor}`)) {
+      throw new Error(`Invalid TOC target for ${chapter.id}`)
+    }
+    if (hrefs.has(chapter.tocHref)) {
+      throw new Error(`Duplicate TOC target: ${chapter.tocHref}`)
+    }
+    hrefs.add(chapter.tocHref)
+  }
+}
+
 function generateTitlePage(meta: BookMeta): string {
   const coverImg = meta.coverImage
-    ? `<div style="text-align:center;margin-bottom:2em"><img src="${meta.coverImage}" alt="封面" style="max-width:60%;max-height:400px;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,0.2)" /></div>`
+    ? `<div style="text-align:center;margin-bottom:2em"><img src="${meta.coverImage}" alt="Cover" style="max-width:60%;max-height:400px;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,0.2)" /></div>`
     : ''
+
   return `
 ${coverImg}
 <div style="text-align:center;padding:2em 0">
-  <h1 style="font-size:2em;margin:0.5em 0;border:none">${meta.title}</h1>
-  ${meta.author ? `<p style="font-size:1.2em;color:#555;margin:0.5em 0">${meta.author} 著</p>` : ''}
-  ${meta.description ? `<p style="font-size:0.9em;color:#777;margin:1em auto;max-width:80%;line-height:1.6">${meta.description}</p>` : ''}
+  <h1 style="font-size:2em;margin:0.5em 0;border:none">${escapeHtml(meta.title)}</h1>
+  ${meta.author ? `<p style="font-size:1.2em;color:#555;margin:0.5em 0">${escapeHtml(meta.author)} 著</p>` : ''}
+  ${meta.description ? `<p style="font-size:0.9em;color:#777;margin:1em auto;max-width:80%;line-height:1.6">${escapeHtml(meta.description)}</p>` : ''}
   <hr style="border:none;border-top:1px solid #ddd;margin:1.5em auto;width:40%" />
-  ${meta.publishDate ? `<p style="font-size:0.85em;color:#999">出版日期：${meta.publishDate}</p>` : ''}
+  ${meta.publishDate ? `<p style="font-size:0.85em;color:#999">出版日期：${escapeHtml(meta.publishDate)}</p>` : ''}
   <p style="font-size:0.8em;color:#aaa;margin-top:1em">EPUB Builder</p>
 </div>
 `
 }
 
+async function toCoverFile(coverImage: string | null): Promise<string | File | undefined> {
+  if (!coverImage) return undefined
+
+  const match = coverImage.match(/^data:(image\/[^;]+);base64,(.+)$/)
+  if (!match) return coverImage
+
+  const mime = match[1]
+  const ext = mime.split('/')[1] || 'png'
+  const binary = atob(match[2])
+  const bytes = new Uint8Array(binary.length)
+
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i)
+  }
+
+  return new File([bytes], `cover.${ext}`, { type: mime })
+}
+
 export async function exportToEpub(bookId: string): Promise<Blob> {
   const book = await db.books.get(bookId)
-  if (!book) throw new Error('书籍不存在')
+  if (!book) throw new Error('Book not found')
 
   const allChapters = await db.chapters
     .where('bookId')
     .equals(bookId)
     .sortBy('order')
 
-  if (allChapters.length === 0) throw new Error('没有章节可导出')
+  if (allChapters.length === 0) throw new Error('No chapters to export')
 
-  // 将树形章节展平为有序列表，同时记录每个章节的层级深度
-  type FlatChapter = Chapter & { depth: number }
-  const flattenChapters = (parentId: string | null, depth: number): FlatChapter[] => {
-    const roots = allChapters.filter((c) => c.parentId === parentId).sort((a, b) => a.order - b.order)
-    const result: FlatChapter[] = []
-    for (const ch of roots) {
-      result.push({ ...ch, depth })
-      result.push(...flattenChapters(ch.id, depth + 1))
-    }
-    return result
-  }
-  const chapters = flattenChapters(null, 0)
+  const exportChapters = buildExportChapters(allChapters)
+  validateExportChapters(exportChapters)
 
-  // 扉页章节（目录之前）
+  const chapterTree = buildExportChapterTree(exportChapters)
+  const tocXhtmlBody = buildTocXhtmlBody(chapterTree)
+  const tocNcxBody = buildTocNcxBody(chapterTree)
+  const tocDepth = getMaxTocDepth(exportChapters)
+
   const titlePageContent: Content[number] = {
-    title: '扉页',
+    title: 'Title Page',
     content: generateTitlePage(book.meta),
     excludeFromToc: true,
     beforeToc: true,
   }
 
-  const chapterContent: Content = chapters.map((ch) => {
-    const html = renderMarkdown(ch.content)
-    return {
-      title: encodeDepth(ch.title, ch.depth),
-      content: html,
-    }
-  })
+  const content: Content = [titlePageContent, ...exportChapters]
+  const cover = await toCoverFile(book.meta.coverImage)
 
-  const content: Content = [titlePageContent, ...chapterContent]
-
-  // 将 base64 data URL 转为 File 对象（epub-gen-memory 对字符串 cover 使用 fetch，不支持 data URL）
-  let cover: string | File | undefined
-  if (book.meta.coverImage) {
-    const dataUrl = book.meta.coverImage
-    const match = dataUrl.match(/^data:(image\/[^;]+);base64,(.+)$/)
-    if (match) {
-      const mime = match[1]
-      const ext = mime.split('/')[1] || 'png'
-      const binary = atob(match[2])
-      const bytes = new Uint8Array(binary.length)
-      for (let i = 0; i < binary.length; i++) {
-        bytes[i] = binary.charCodeAt(i)
-      }
-      cover = new File([bytes], `cover.${ext}`, { type: mime })
-    } else {
-      cover = dataUrl
-    }
-  }
-
-  const options: Options = {
+  const options: Options & {
+    tocXhtmlBody: string
+    tocNcxBody: string
+    tocDepth: number
+  } = {
     title: book.meta.title,
-    author: book.meta.author ? book.meta.author.split(/[&,，]/).map((s) => s.trim()).filter(Boolean) : ['未知作者'],
+    author: normalizeAuthor(book.meta.author),
     publisher: 'EPUB Builder',
     description: book.meta.description || undefined,
     cover,
@@ -202,20 +294,23 @@ export async function exportToEpub(bookId: string): Promise<Blob> {
     tocInTOC: true,
     numberChaptersInTOC: false,
     prependChapterTitles: false,
+    version: 3,
     tocXHTML: tocXHTMLTemplate,
     tocNCX: tocNCXTemplate,
+    tocXhtmlBody,
+    tocNcxBody,
+    tocDepth,
   }
 
-  // 动态导入 epub-gen-memory，避免 CJS/fs 模块影响编辑器加载
   const ePubModule = await import('epub-gen-memory')
-  // eslint-disable-next-line ts/no-explicit-any -- CJS/ESM 互操作：可能存在双重 default 包装
+  // eslint-disable-next-line ts/no-explicit-any -- CJS/ESM interop
   const ePub = (ePubModule as any).default?.default || (ePubModule as any).default || ePubModule
-  // 浏览器环境 genEpub 返回 Blob (type='blob')
   const result = await ePub(options, content)
+
   if (result instanceof Blob) {
     return result
   }
-  // 兜底：如果返回 ArrayBuffer/Buffer
+
   return new Blob([new Uint8Array(result as unknown as ArrayBuffer)], { type: 'application/epub+zip' })
 }
 
@@ -223,23 +318,26 @@ export function isTauri(): boolean {
   return !!window.__TAURI_INTERNALS__
 }
 
-async function downloadEpubTauri(blob: Blob, filename: string) {
+async function downloadEpubTauri(blob: Blob, filename: string): Promise<DownloadEpubResult> {
   const { save } = await import('@tauri-apps/plugin-dialog')
   const { writeFile } = await import('@tauri-apps/plugin-fs')
   const filePath = await save({
     defaultPath: `${filename}.epub`,
     filters: [{ name: 'EPUB', extensions: ['epub'] }],
   })
-  if (!filePath) return
+
+  if (!filePath) return { status: 'cancelled' }
+
   const buffer = await blob.arrayBuffer()
   await writeFile(filePath, new Uint8Array(buffer))
+  return { status: 'saved', filePath }
 }
 
-export function downloadEpub(blob: Blob, filename: string) {
+export async function downloadEpub(blob: Blob, filename: string): Promise<DownloadEpubResult> {
   if (isTauri()) {
-    downloadEpubTauri(blob, filename)
-    return
+    return downloadEpubTauri(blob, filename)
   }
+
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
@@ -248,4 +346,6 @@ export function downloadEpub(blob: Blob, filename: string) {
   link.click()
   document.body.removeChild(link)
   URL.revokeObjectURL(url)
+
+  return { status: 'saved' }
 }

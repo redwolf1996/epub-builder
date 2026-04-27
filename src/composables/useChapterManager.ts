@@ -4,6 +4,7 @@ import type { useBookStore } from '@/stores/book'
 import type { useEditorStore } from '@/stores/editor'
 import type CodeMirrorEditor from '@/components/editor/CodeMirrorEditor.vue'
 import type { Chapter } from '@/types'
+import { INVALID_CHAPTER_MOVE } from '@/composables/useChapter'
 
 type CmEditorRef = InstanceType<typeof CodeMirrorEditor>
 
@@ -15,6 +16,7 @@ export function useChapterManager(
   message: MessageApiInjection,
   t: (key: string) => string,
 ) {
+  const invalidMoveMessage = '涓嶈兘灏嗙珷鑺傜Щ鍔ㄥ埌鑷繁鎴栧叾瀛愮骇涓嬮潰'
   const showAddChapter = ref(false)
   const newChapterTitle = ref('')
   const addChapterParentId = ref<string | null>(null)
@@ -78,8 +80,16 @@ export function useChapterManager(
   }
 
   const handlePromoteChapter = async (chapterId: string) => {
-    await bookStore.moveChapterToParent(chapterId, null)
-    message.success(t('editor.chapterPromoted'))
+    try {
+      await bookStore.moveChapterToParent(chapterId, null)
+      message.success(t('editor.chapterPromoted'))
+    } catch (error) {
+      if (error instanceof Error && error.message === INVALID_CHAPTER_MOVE) {
+        message.error(invalidMoveMessage)
+        return
+      }
+      throw error
+    }
   }
 
   const handleDeleteChapter = async (chapterId: string) => {
@@ -117,7 +127,16 @@ export function useChapterManager(
   }
 
   const onChapterSortEnd = async (parentId: string | null, orderedIds: string[]) => {
-    await bookStore.reorderChapters(parentId, orderedIds)
+    try {
+      await bookStore.reorderChapters(parentId, orderedIds)
+    } catch (error) {
+      localChapters.value = [...bookStore.chapters]
+      if (error instanceof Error && error.message === INVALID_CHAPTER_MOVE) {
+        message.error(invalidMoveMessage)
+        return
+      }
+      throw error
+    }
   }
 
   return {

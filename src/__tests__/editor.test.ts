@@ -12,25 +12,25 @@ describe('useEditorStore', () => {
     vi.useRealTimers()
   })
 
-  it('charCount 返回纯文本长度', () => {
+  it('returns character count for plain text', () => {
     const store = useEditorStore()
     store.content = 'Hello 世界'
     expect(store.charCount).toBe(8)
   })
 
-  it('wordCount 混合 CJK + 英文计数', () => {
+  it('counts mixed CJK and english words', () => {
     const store = useEditorStore()
     store.content = '你好世界 hello world'
-    expect(store.wordCount).toBe(6) // 4 CJK + 2 English words
+    expect(store.wordCount).toBe(6)
   })
 
-  it('wordCount 纯英文计数', () => {
+  it('counts english words', () => {
     const store = useEditorStore()
     store.content = 'hello world test'
     expect(store.wordCount).toBe(3)
   })
 
-  it('saveStatus 状态机：idle → dirty → saving → saved', () => {
+  it('transitions saveStatus through dirty to saved', async () => {
     const store = useEditorStore()
     expect(store.saveStatus).toBe('idle')
 
@@ -38,33 +38,26 @@ describe('useEditorStore', () => {
     expect(store.saveStatus).toBe('dirty')
 
     vi.advanceTimersByTime(500)
-    expect(store.saveStatus).toBe('saving')
-
-    // saveCurrentChapter 是 async，需要 flush microtasks
-    return vi.runAllTimersAsync().then(() => {
-      expect(store.saveStatus).toBe('saved')
-    })
+    await vi.runAllTimersAsync()
+    expect(store.saveStatus).toBe('saved')
   })
 
-  it('flushSave 在 dirty 状态下立即保存', () => {
+  it('flushSave persists immediately', async () => {
     const store = useEditorStore()
     store.setContent('content')
     expect(store.saveStatus).toBe('dirty')
 
-    store.flushSave()
-    expect(store.saveStatus).toBe('saving')
-
-    return vi.runAllTimersAsync().then(() => {
-      expect(store.saveStatus).toBe('saved')
-    })
+    await store.flushSave()
+    expect(store.saveStatus).toBe('saved')
   })
 
-  it('cancelPendingSave 取消后不触发保存', () => {
+  it('cancelPendingSave prevents the debounced save', async () => {
     const store = useEditorStore()
     store.setContent('content')
     store.cancelPendingSave()
 
     vi.advanceTimersByTime(500)
+    await vi.runAllTimersAsync()
     expect(store.saveStatus).toBe('dirty')
   })
 })

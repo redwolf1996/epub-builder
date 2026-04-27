@@ -2,6 +2,8 @@ import { ref } from 'vue'
 import { db } from '@/db'
 import type { Chapter } from '@/types'
 
+const INVALID_CHAPTER_MOVE = 'INVALID_CHAPTER_MOVE'
+
 export function useChapter() {
   const chapters = ref<Chapter[]>([])
   const currentChapter = ref<Chapter | null>(null)
@@ -24,9 +26,39 @@ export function useChapter() {
     return db.chapters.get(id)
   }
 
+  const getLocalChapter = (id: string) => chapters.value.find((chapter) => chapter.id === id)
+
+  const isDescendantChapter = (chapterId: string, ancestorId: string): boolean => {
+    let current = getLocalChapter(chapterId)
+    while (current?.parentId) {
+      if (current.parentId === ancestorId) {
+        return true
+      }
+      current = getLocalChapter(current.parentId)
+    }
+    return false
+  }
+
+  const canMoveChapter = (chapterId: string, parentId: string | null): boolean => {
+    if (parentId === null) return !!getLocalChapter(chapterId)
+    if (chapterId === parentId) return false
+
+    const chapter = getLocalChapter(chapterId)
+    const parent = getLocalChapter(parentId)
+    if (!chapter || !parent) return false
+    if (chapter.bookId !== parent.bookId) return false
+
+    return !isDescendantChapter(parentId, chapterId)
+  }
+
+  const assertValidChapterMove = (chapterId: string, parentId: string | null) => {
+    if (!canMoveChapter(chapterId, parentId)) {
+      throw new Error(INVALID_CHAPTER_MOVE)
+    }
+  }
+
   const addChapter = async (bookId: string, title: string, parentId: string | null = null): Promise<string> => {
     const now = Date.now()
-    // 同级章节的 maxOrder
     const siblings = chapters.value.filter((c) => c.parentId === parentId)
     const maxOrder = siblings.length > 0
       ? Math.max(...siblings.map((c) => c.order))
@@ -55,7 +87,6 @@ export function useChapter() {
       updatedAt: now,
     })
 
-    // 同步更新本地状态
     const idx = chapters.value.findIndex((c) => c.id === id)
     if (idx !== -1) {
       chapters.value[idx].content = content
@@ -76,7 +107,6 @@ export function useChapter() {
   }
 
   const deleteChapter = async (id: string) => {
-    // 递归删除子章节
     const children = chapters.value.filter((c) => c.parentId === id)
     for (const child of children) {
       await deleteChapter(child.id)
@@ -88,17 +118,22 @@ export function useChapter() {
     }
   }
 
-  /** 重排同级章节 */
   const reorderChapters = async (parentId: string | null, orderedIds: string[]) => {
+    for (const id of orderedIds) {
+      assertValidChapterMove(id, parentId)
+    }
+
+    const updatedAt = Date.now()
     const updates = orderedIds.map((id, index) =>
-      db.chapters.update(id, { order: index, parentId, updatedAt: Date.now() })
+      db.chapters.update(id, { order: index, parentId, updatedAt })
     )
     await Promise.all(updates)
     await loadChapters(chapters.value[0]?.bookId ?? '')
   }
 
-  /** 将章节移为某个父章节的子章节 */
   const moveChapterToParent = async (chapterId: string, parentId: string | null) => {
+    assertValidChapterMove(chapterId, parentId)
+
     const siblings = chapters.value.filter((c) => c.parentId === parentId && c.id !== chapterId)
     const maxOrder = siblings.length > 0
       ? Math.max(...siblings.map((c) => c.order))
@@ -123,6 +158,9 @@ export function useChapter() {
     deleteChapter,
     reorderChapters,
     moveChapterToParent,
+    canMoveChapter,
     selectChapter,
   }
 }
+
+export { INVALID_CHAPTER_MOVE }

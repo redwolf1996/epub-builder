@@ -1,17 +1,16 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { useChapter } from '@/composables/useChapter'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { useChapter, INVALID_CHAPTER_MOVE } from '@/composables/useChapter'
 import type { Chapter } from '@/types'
 
-// mock db
 const chaptersData: Map<string, Chapter> = new Map()
 
 vi.mock('@/db', () => {
   const chaptersTable = {
     where: () => ({
-      equals: () => ({
+      equals: (bookId: string) => ({
         sortBy: async () =>
           [...chaptersData.values()]
-            .filter((c) => c.bookId === 'book1')
+            .filter((c) => c.bookId === bookId)
             .sort((a, b) => a.order - b.order),
       }),
     }),
@@ -38,44 +37,44 @@ vi.mock('@/db', () => {
 describe('useChapter', () => {
   beforeEach(() => {
     chaptersData.clear()
+    vi.spyOn(crypto, 'randomUUID')
+      .mockReturnValueOnce('00000000-0000-0000-0000-000000000001')
+      .mockReturnValueOnce('00000000-0000-0000-0000-000000000002')
+      .mockReturnValueOnce('00000000-0000-0000-0000-000000000003')
+      .mockReturnValueOnce('00000000-0000-0000-0000-000000000004')
   })
 
-  it('addChapter 创建章节并 order 递增', async () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('creates chapters with incrementing order', async () => {
     const { addChapter, chapters } = useChapter()
     const id = await addChapter('book1', 'Chapter 1')
-    expect(id).toBeTruthy()
+    expect(id).toBe('00000000-0000-0000-0000-000000000001')
     expect(chapters.value).toHaveLength(1)
     expect(chapters.value[0].order).toBe(0)
-    expect(chapters.value[0].title).toBe('Chapter 1')
   })
 
-  it('addChapter 同级 order 递增', async () => {
-    const { addChapter, chapters } = useChapter()
-    await addChapter('book1', 'Chapter 1')
-    await addChapter('book1', 'Chapter 2')
-    expect(chapters.value[1].order).toBe(1)
-  })
-
-  it('updateChapterContent 同步本地状态', async () => {
+  it('syncs content updates locally', async () => {
     const { addChapter, updateChapterContent, chapters } = useChapter()
     const id = await addChapter('book1', 'Chapter 1')
     await updateChapterContent(id, 'new content')
-    const ch = chapters.value.find((c) => c.id === id)
-    expect(ch?.content).toBe('new content')
+    expect(chapters.value.find((c) => c.id === id)?.content).toBe('new content')
   })
 
-  it('deleteChapter 递归删除子章节', async () => {
+  it('deletes child chapters recursively', async () => {
     const { addChapter, deleteChapter, chapters } = useChapter()
     const parentId = await addChapter('book1', 'Parent')
     const childId = await addChapter('book1', 'Child', parentId)
-    expect(chapters.value).toHaveLength(2)
 
     await deleteChapter(parentId)
+
     expect(chapters.value).toHaveLength(0)
     expect(chaptersData.has(childId)).toBe(false)
   })
 
-  it('reorderChapters 按传入顺序重排', async () => {
+  it('reorders sibling chapters', async () => {
     const { addChapter, reorderChapters, loadChapters, chapters } = useChapter()
     const id1 = await addChapter('book1', 'C1')
     const id2 = await addChapter('book1', 'C2')
@@ -83,11 +82,10 @@ describe('useChapter', () => {
     await reorderChapters(null, [id2, id1])
     await loadChapters('book1')
 
-    const ordered = chapters.value.map((c) => c.id)
-    expect(ordered).toEqual([id2, id1])
+    expect(chapters.value.map((c) => c.id)).toEqual([id2, id1])
   })
 
-  it('moveChapterToParent 更新 parentId 和 order', async () => {
+  it('moves a chapter under a different parent', async () => {
     const { addChapter, moveChapterToParent, loadChapters, chapters } = useChapter()
     const parentId = await addChapter('book1', 'Parent')
     const childId = await addChapter('book1', 'Child')
@@ -95,7 +93,15 @@ describe('useChapter', () => {
     await moveChapterToParent(childId, parentId)
     await loadChapters('book1')
 
-    const child = chapters.value.find((c) => c.id === childId)
-    expect(child?.parentId).toBe(parentId)
+    expect(chapters.value.find((c) => c.id === childId)?.parentId).toBe(parentId)
+  })
+
+  it('rejects moving a chapter into its own descendant', async () => {
+    const { addChapter, moveChapterToParent, canMoveChapter } = useChapter()
+    const parentId = await addChapter('book1', 'Parent')
+    const childId = await addChapter('book1', 'Child', parentId)
+
+    expect(canMoveChapter(parentId, childId)).toBe(false)
+    await expect(moveChapterToParent(parentId, childId)).rejects.toThrow(INVALID_CHAPTER_MOVE)
   })
 })

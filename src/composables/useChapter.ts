@@ -38,7 +38,7 @@ export function useChapter() {
       bookId,
       parentId,
       title,
-      content: `# ${title}\n\n`,
+      content: '',
       order: maxOrder + 1,
       createdAt: now,
       updatedAt: now,

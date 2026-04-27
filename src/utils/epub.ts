@@ -8,7 +8,7 @@ import type { Options, Content } from 'epub-gen-memory'
  * 匹配 h1~h6
  */
 export function deduplicateChapterTitle(html: string, chapterTitle: string): string {
-  const hMatch = html.match(/^\s*<h([1-6])>(.*?)<\/h[1-6]>/)
+  const hMatch = html.match(/^\s*<h([1-6])(?:\s[^>]*)?>(.*?)<\/h[1-6]>/)
   if (hMatch) {
     const headingText = hMatch[2].replace(/<[^>]*>/g, '').trim()
     if (headingText === chapterTitle.trim()) {

@@ -21,6 +21,16 @@ describe('deduplicateChapterTitle', () => {
     const html = '<h2>Sub</h2><p>Text</p>'
     expect(deduplicateChapterTitle(html, 'Sub')).toBe('<p>Text</p>')
   })
+
+  it('标题匹配时去除带属性的 h 标签（如 data-line）', () => {
+    const html = '<h1 data-line="1">Chapter 1</h1><p>Content</p>'
+    expect(deduplicateChapterTitle(html, 'Chapter 1')).toBe('<p>Content</p>')
+  })
+
+  it('带属性但标题不匹配时原样返回', () => {
+    const html = '<h1 data-line="1">Different</h1><p>Content</p>'
+    expect(deduplicateChapterTitle(html, 'Chapter 1')).toBe(html)
+  })
 })
 
 describe('prependChapterTitle', () => {

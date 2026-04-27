@@ -163,6 +163,7 @@ const handleSettings = (id: string) => {
           <div class="card-surface">
             <div
               class="book-cover"
+              :class="{ 'is-default-cover': !book.meta.coverImage }"
               role="button"
               tabindex="0"
               @click="handleOpenBook(book.id)"
@@ -171,6 +172,7 @@ const handleSettings = (id: string) => {
             >
               <img v-if="book.meta.coverImage" :src="book.meta.coverImage" alt="cover" class="cover-img" />
               <div v-else class="cover-default" />
+              <span class="cover-page-edge" />
               <div class="cover-actions">
                 <NButton size="small" circle class="cover-action-btn" @click.stop="handleSettings(book.id)">
                   <span class="i-carbon-settings text-sm" />
@@ -273,10 +275,38 @@ const handleSettings = (id: string) => {
   padding: 0;
   text-align: left;
   cursor: pointer;
+  perspective: 1200px;
 }
 
 .card-enter {
   animation: card-in 180ms ease both;
+}
+
+.book-card {
+  position: relative;
+}
+
+.book-card::after {
+  content: '';
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 2px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.18);
+  filter: blur(10px);
+  opacity: 0.72;
+  transform: translateY(6px);
+  transition: opacity 0.22s ease, transform 0.22s ease, filter 0.22s ease;
+  pointer-events: none;
+}
+
+.book-card:hover::after,
+.book-card:focus-within::after {
+  opacity: 0.88;
+  transform: translateY(10px) scaleX(0.96);
+  filter: blur(12px);
 }
 
 @keyframes card-in {
@@ -294,14 +324,33 @@ const handleSettings = (id: string) => {
 .book-cover {
   position: relative;
   aspect-ratio: 210 / 297;
-  border-radius: 6px;
+  border-radius: 4px 0 0 4px;
   overflow: hidden;
   background: var(--bg-elevated);
-  transition: transform 0.2s ease;
+  border: 1px solid color-mix(in srgb, var(--border-color) 78%, rgba(255, 255, 255, 0.08));
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.08) inset,
+    0 0 0 1px rgba(0, 0, 0, 0.06),
+    0 14px 22px rgba(0, 0, 0, 0.16),
+    0 4px 8px rgba(0, 0, 0, 0.08),
+    -18px 0 0 rgba(0, 0, 0, 0.08) inset,
+    -14px 0 0 rgba(255, 255, 255, 0.05) inset,
+    4px 0 0 rgba(255, 255, 255, 0.9) inset;
+  transform-origin: left center;
+  transform: none;
+  transition: transform 0.22s ease, box-shadow 0.22s ease;
 }
 
 .card-surface:hover .book-cover {
-  transform: translateY(-2px);
+  transform: translateY(-4px) rotateY(-6deg);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.1) inset,
+    0 0 0 1px rgba(0, 0, 0, 0.08),
+    0 20px 30px rgba(0, 0, 0, 0.18),
+    0 6px 10px rgba(0, 0, 0, 0.08),
+    -18px 0 0 rgba(0, 0, 0, 0.1) inset,
+    -14px 0 0 rgba(255, 255, 255, 0.06) inset,
+    5px 0 0 rgba(255, 255, 255, 0.94) inset;
 }
 
 .cover-img {
@@ -313,16 +362,120 @@ const handleSettings = (id: string) => {
 .cover-default {
   position: absolute;
   inset: 0;
-  background: linear-gradient(145deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+  background:
+    linear-gradient(90deg, rgba(98, 59, 26, 0.58) 0, rgba(75, 45, 20, 0.5) 14px, rgba(255, 255, 255, 0.08) 15px, transparent 24px),
+    linear-gradient(145deg, #f0d7a4 0%, #d7b47f 52%, #b78452 100%);
+}
+
+.cover-default::before {
+  content: '';
+  position: absolute;
+  inset: 14px 16px;
+  border: 1px solid rgba(88, 58, 24, 0.24);
+  border-radius: 3px 6px 6px 3px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(88, 58, 24, 0.04)),
+    repeating-linear-gradient(
+      180deg,
+      transparent 0 16px,
+      rgba(88, 58, 24, 0.05) 16px 17px
+    );
+  pointer-events: none;
+}
+
+.cover-default::after {
+  content: '';
+  position: absolute;
+  left: 18px;
+  right: 18px;
+  top: 22%;
+  height: 1px;
+  background: rgba(88, 58, 24, 0.26);
+  box-shadow:
+    0 10px 0 rgba(88, 58, 24, 0.14),
+    0 20px 0 rgba(88, 58, 24, 0.14);
+  pointer-events: none;
+}
+
+.book-cover.is-default-cover .cover-text {
+  background:
+    radial-gradient(circle at center, rgba(255, 248, 233, 0.06) 0%, rgba(88, 58, 24, 0.12) 42%, rgba(58, 32, 12, 0.24) 100%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04) 0%, rgba(88, 58, 24, 0.18) 58%, rgba(58, 32, 12, 0.08) 100%);
+}
+
+.book-cover.is-default-cover .cover-title {
+  color: #fff9ee;
+  text-shadow:
+    0 1px 2px rgba(88, 58, 24, 0.28),
+    0 3px 10px rgba(88, 58, 24, 0.22);
+}
+
+.book-cover.is-default-cover .cover-author {
+  color: rgba(255, 248, 233, 0.88);
+  text-shadow:
+    0 1px 2px rgba(88, 58, 24, 0.22),
+    0 2px 8px rgba(88, 58, 24, 0.18);
 }
 
 .book-cover::after {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(180deg, rgba(6, 10, 18, 0.68) 0%, rgba(6, 10, 18, 0.28) 18%, rgba(6, 10, 18, 0) 42%);
+  background:
+    linear-gradient(90deg, rgba(0, 0, 0, 0.1) 0, transparent 14px),
+    linear-gradient(180deg, rgba(6, 10, 18, 0.6) 0%, rgba(6, 10, 18, 0.22) 18%, rgba(6, 10, 18, 0) 42%);
   opacity: 0;
   transition: opacity 0.18s ease;
+  pointer-events: none;
+}
+
+.book-cover::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 16px;
+  background:
+    linear-gradient(90deg, rgba(0, 0, 0, 0.28) 0, rgba(0, 0, 0, 0.12) 68%, rgba(255, 255, 255, 0.08) 100%);
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    inset -1px 0 0 rgba(255, 255, 255, 0.08),
+    inset -4px 0 8px rgba(255, 255, 255, 0.05);
+  pointer-events: none;
+}
+
+.book-cover.is-default-cover::after {
+  background:
+    linear-gradient(90deg, rgba(78, 46, 20, 0.12) 0, transparent 14px),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, rgba(88, 58, 24, 0.12) 18%, rgba(58, 32, 12, 0) 42%);
+}
+
+.book-cover.is-default-cover::before {
+  background:
+    linear-gradient(90deg, rgba(110, 66, 28, 0.55) 0, rgba(94, 56, 24, 0.42) 68%, rgba(255, 245, 228, 0.12) 100%);
+  border-right-color: rgba(255, 248, 233, 0.18);
+  box-shadow:
+    inset -1px 0 0 rgba(255, 248, 233, 0.16),
+    inset -4px 0 8px rgba(255, 248, 233, 0.08);
+}
+
+.book-cover > .cover-page-edge {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  right: 0;
+  width: 6px;
+  background:
+    repeating-linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.98) 0 2px,
+      rgba(248, 248, 246, 0.96) 2px 4px
+    );
+  border-left: 1px solid rgba(0, 0, 0, 0.05);
+  box-shadow:
+    inset 1px 0 0 rgba(255, 255, 255, 0.92),
+    inset -1px 0 0 rgba(233, 233, 229, 0.85);
   pointer-events: none;
 }
 
@@ -378,7 +531,7 @@ const handleSettings = (id: string) => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 14px 18px;
+  padding: 18px 26px 18px 22px;
   background:
     radial-gradient(circle at center, rgba(0, 0, 0, 0.18) 0%, rgba(0, 0, 0, 0.28) 38%, rgba(0, 0, 0, 0.42) 100%),
     linear-gradient(180deg, rgba(0, 0, 0, 0.18) 0%, rgba(0, 0, 0, 0.46) 55%, rgba(0, 0, 0, 0.2) 100%);

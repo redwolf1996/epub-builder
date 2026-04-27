@@ -272,7 +272,10 @@
         </NScrollbar>
 
         <div class="sidebar-statusbar flex items-center justify-center px-3 shrink-0">
-          <span class="text-xs sidebar-status-text">Powered By Love</span>
+          <span class="flex items-center gap-1 text-xs sidebar-status-text">
+            <span>Powered By Love</span>
+            <span class="i-carbon-favorite text-[10px]" />
+          </span>
         </div>
       </aside>
     </Transition>
@@ -318,7 +321,10 @@
       </NScrollbar>
 
       <div class="sidebar-statusbar flex items-center justify-center px-3 shrink-0">
-        <span class="text-xs sidebar-status-text">Powered By Love</span>
+        <span class="flex items-center gap-1 text-xs sidebar-status-text">
+          <span>Powered By Love</span>
+          <span class="i-carbon-favorite text-[10px]" />
+        </span>
       </div>
     </aside>
 

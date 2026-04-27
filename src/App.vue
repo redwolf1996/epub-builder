@@ -249,7 +249,7 @@
     if (e.key === 'Escape' && appFullscreen.value) {
       toggleAppFullscreen()
     }
-    if (e.key === 'Alt') {
+    if (e.key.toLowerCase() === 'm' && e.ctrlKey) {
       e.preventDefault()
       toggleMenuVisibility()
     }

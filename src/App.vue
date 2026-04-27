@@ -18,6 +18,7 @@
   const MENU_VISIBLE_KEY = 'epub-builder-menu-visible'
 
   const isHome = computed(() => route.path === '/')
+  const isEditor = computed(() => route.path.includes('/editor'))
   const bookTitle = computed(() => {
     if (isHome.value) return ''
     return bookStore.activeBook?.meta.title || ''
@@ -298,6 +299,11 @@
   const handleCreateBook = () => {
     router.push({ path: '/', query: { create: '1' } })
   }
+
+  const handleBackToShelf = () => {
+    void bookStore.initBookList()
+    router.push('/')
+  }
 </script>
 
 <template>
@@ -325,6 +331,15 @@
                 </template>
                 {{ t('app.createBook') }}
               </NButton>
+              <button
+                v-if="isEditor"
+                type="button"
+                class="app-back-btn"
+                @click="handleBackToShelf"
+              >
+                <span class="i-carbon-arrow-left text-sm" />
+                <span>{{ t('editor.backToShelf') }}</span>
+              </button>
               <NButton quaternary size="tiny" @click="toggleLocale">
                 <span class="text-xs font-bold">{{ locale === 'zh-CN' ? 'EN' : '中' }}</span>
               </NButton>
@@ -375,17 +390,45 @@
     display: inline-flex;
     align-items: center;
     gap: 4px;
+    height: 24px;
+    box-sizing: border-box;
     font-size: 0.8125rem;
     font-weight: 700;
     color: var(--primary);
     background: var(--bg-active);
-    padding: 2px 10px;
+    padding: 0 10px;
     border-radius: 4px;
     border: 1px solid var(--primary);
     max-width: 200px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .app-back-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 24px;
+    box-sizing: border-box;
+    min-width: 0;
+    padding: 0 10px;
+    font-weight: 600;
+    font-size: 0.8125rem;
+    line-height: 1;
+    white-space: nowrap;
+    color: var(--text-primary);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+  }
+
+  .app-back-btn:hover {
+    color: var(--primary);
+    background: var(--bg-active);
+    border-color: var(--border-light);
   }
 
   .page-fade-enter-active,

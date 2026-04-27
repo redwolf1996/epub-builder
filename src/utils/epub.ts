@@ -163,10 +163,9 @@ export async function exportToEpub(bookId: string): Promise<Blob> {
 
   const chapterContent: Content = chapters.map((ch) => {
     const html = renderMarkdown(ch.content)
-    const bodyHtml = deduplicateChapterTitle(html, ch.title)
     return {
       title: encodeDepth(ch.title, ch.depth),
-      content: prependChapterTitle(ch.title, ch.depth) + bodyHtml,
+      content: html,
     }
   })
 

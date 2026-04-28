@@ -7,7 +7,7 @@
     "frontendDist": "../dist",
     "devUrl": "http://localhost:7788",
     "beforeDevCommand": "pnpm dev",
-    "beforeBuildCommand": "pnpm build"
+    "beforeBuildCommand": "powershell -ExecutionPolicy Bypass -Command \"& 'src-tauri\\ocr\\build-sidecar.ps1'; pnpm build\""
   },
   "app": {
     "windows": [
@@ -27,7 +27,14 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": "msi",
+    "resources": [
+      "ocr/dist/rapidocr-sidecar",
+      "ocr/sidecar.py",
+      "ocr/corrections.json",
+      "ocr/build-sidecar.ps1",
+      "ocr/requirements.txt"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

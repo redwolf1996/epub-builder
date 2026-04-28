@@ -82,7 +82,7 @@
     toDOM() {
       const span = document.createElement('span')
       span.className = 'cm-base64-folded'
-      span.textContent = '馃搸 base64 image'
+      span.textContent = 'Folded base64 image'
       return span
     }
     ignoreEvent() { return false }
@@ -112,7 +112,7 @@
       fontSize: '14px',
     },
     '.cm-line, .cm-gutters': {
-      fontFamily: "'Microsoft YaHei', '寰蒋闆呴粦', sans-serif",
+      fontFamily: "'Microsoft YaHei', 'PingFang SC', sans-serif",
     },
     '.cm-content': {
       padding: '16px 0',
@@ -316,7 +316,10 @@
     focus: () => editorRef.value?.focus(),
     insertText: (text: string) => {
       if (!editorRef.value) return
-      const { from, to } = editorRef.value.state.selection.main
+      const docLength = editorRef.value.state.doc.length
+      const selection = editorRef.value.state.selection.main
+      const from = Math.min(Math.max(selection.from, 0), docLength)
+      const to = Math.min(Math.max(selection.to, from), docLength)
       editorRef.value.dispatch({
         changes: { from, to, insert: text },
         selection: { anchor: from + text.length },

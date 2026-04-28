@@ -7,6 +7,7 @@ import { isTauri } from '@/utils/epub'
 
 const props = defineProps<{
   exporting?: boolean
+  ocrProcessing?: boolean
   showChapterToggle?: boolean
   chapterToggleActive?: boolean
   syncScroll?: boolean
@@ -16,6 +17,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   export: []
   ocr: []
+  aiOcr: []
+  openDevtools: []
   fullscreen: []
   toggleChapter: []
   toggleScrollSync: []
@@ -46,6 +49,7 @@ const moreActions = computed<Array<{ key: string; label: string; icon: () => Ret
   { key: 'inlineCode', label: t('toolbar.inlineCode'), icon: optionIcon('i-carbon-code') },
   { key: 'codeBlock', label: t('toolbar.codeBlock'), icon: optionIcon('i-carbon-terminal') },
   { key: 'link', label: t('toolbar.link'), icon: optionIcon('i-carbon-link') },
+  ...(isTauri() ? [{ key: 'devtools', label: t('toolbar.devtools'), icon: optionIcon('i-carbon-development') }] : []),
 ]))
 
 const insertHeading = () => {
@@ -107,6 +111,10 @@ const handleMoreSelect = (key: string) => {
       break
     case 'link':
       insertLink()
+      break
+    case 'devtools':
+      emit('openDevtools')
+      showMore.value = false
       break
   }
 }
@@ -208,13 +216,21 @@ const handleMoreSelect = (key: string) => {
         </template>
         {{ t('toolbar.image') }}
       </NTooltip>
-      <NTooltip v-if="isTauri()" trigger="hover">
+      <NTooltip trigger="hover">
         <template #trigger>
-          <NButton quaternary size="tiny" @click="emit('ocr')">
-            <span class="i-carbon-scan text-sm" />
+          <NButton quaternary size="tiny" :loading="props.ocrProcessing" :disabled="props.ocrProcessing" @click="emit('ocr')">
+            <span v-if="!props.ocrProcessing" class="i-carbon-scan text-sm" />
           </NButton>
         </template>
         {{ t('toolbar.ocr') }}
+      </NTooltip>
+      <NTooltip trigger="hover">
+        <template #trigger>
+          <NButton quaternary size="tiny" :disabled="props.ocrProcessing" @click="emit('aiOcr')">
+            <span class="i-carbon-chat-bot text-sm" />
+          </NButton>
+        </template>
+        {{ t('toolbar.aiOcr') }}
       </NTooltip>
     </div>
 
@@ -287,7 +303,7 @@ const handleMoreSelect = (key: string) => {
 
     <div class="flex-1" />
 
-    <NButton type="primary" size="small" :loading="props.exporting" @click="emit('export')">
+    <NButton type="primary" size="small" :loading="props.exporting" :disabled="props.ocrProcessing" @click="emit('export')">
       <span v-if="!props.exporting" class="i-carbon-download" :class="{ 'mr-1': !props.compact }" />
       <span v-if="!props.compact">
         {{ props.exporting ? t('editor.exporting') : t('editor.exportEpub') }}

@@ -11,7 +11,7 @@
     "format": "oxfmt --write .",
     "tauri": "tauri",
     "td": "tauri dev",
-    "tb": "tauri build && explorer src-tauri\\target\\release\\bundle || exit 0",
+    "tb": "tauri build --bundles msi && explorer src-tauri\\target\\release\\bundle\\msi || exit 0",
     "test": "vitest",
     "test:run": "vitest run"
   },
@@ -27,6 +27,7 @@
     "@iconify-json/carbon": "^1.2.20",
     "@lezer/highlight": "^1.2.3",
     "@tauri-apps/api": "^2.10.1",
+    "@tauri-apps/plugin-clipboard-manager": "^2.3.2",
     "@tauri-apps/plugin-dialog": "^2.7.0",
     "@tauri-apps/plugin-fs": "^2.5.0",
     "@tauri-apps/plugin-notification": "^2.3.3",

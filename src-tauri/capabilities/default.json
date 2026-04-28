@@ -7,8 +7,11 @@
     "dialog:default",
     "dialog:allow-save",
     "dialog:allow-open",
+    "clipboard-manager:default",
+    "clipboard-manager:allow-read-text",
     "fs:default",
     "fs:allow-write-file",
-    "core:window:allow-set-fullscreen"
+    "core:window:allow-set-fullscreen",
+    "core:window:allow-set-title"
   ]
 }

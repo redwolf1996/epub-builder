@@ -5,7 +5,7 @@
   "identifier": "com.epub-builder",
   "build": {
     "frontendDist": "../dist",
-    "devUrl": "http://localhost:7788",
+    "devUrl": "http://127.0.0.1:3401",
     "beforeDevCommand": "pnpm dev",
     "beforeBuildCommand": "powershell -ExecutionPolicy Bypass -Command \"& 'src-tauri\\ocr\\build-sidecar.ps1'; pnpm build\""
   },

@@ -9,7 +9,9 @@ export default defineConfig({
   },
   plugins: [vue(), unocss()],
   server: {
-    port: 7788,
+    host: '127.0.0.1',
+    port: 3401,
+    strictPort: true,
   },
   resolve: {
     alias: {

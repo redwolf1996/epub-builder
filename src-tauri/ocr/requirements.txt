@@ -1,6 +1,0 @@
-rapidocr
-onnxruntime
-opencv-python-headless
-Pillow
-numpy
-jieba

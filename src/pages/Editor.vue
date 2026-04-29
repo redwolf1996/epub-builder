@@ -2,7 +2,7 @@
   import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
   import { useRoute } from 'vue-router'
   import { useI18n } from 'vue-i18n'
-  import { NButton, NCheckbox, NInput, NInputNumber, NModal, NScrollbar, useDialog, useMessage } from 'naive-ui'
+  import { NButton, NInput, NModal, NScrollbar, useDialog, useMessage } from 'naive-ui'
   import { open } from '@tauri-apps/plugin-dialog'
   import { listen, type UnlistenFn } from '@tauri-apps/api/event'
   import { invoke } from '@tauri-apps/api/core'
@@ -19,34 +19,6 @@
   import MarkdownPreview from '@/components/preview/MarkdownPreview.vue'
   import ChapterNode from '@/components/editor/ChapterNode.vue'
 
-  interface OcrResponse {
-    text: string
-    engine: 'local' | 'windows'
-    rawText?: string | null
-    corrected?: boolean | null
-    confidence?: number | null
-    warning?: string | null
-  }
-
-  interface LocalOcrStatus {
-    ready: boolean
-    needsPython: boolean
-    message?: string | null
-  }
-
-  interface OcrRequest {
-    path: string
-    mode: OcrMode
-    engine: OcrEngineChoice
-    correctText: boolean
-    pageRange?: {
-      start: number
-      end: number
-    }
-  }
-
-  type OcrMode = 'auto' | 'chinese' | 'english'
-  type OcrEngineChoice = 'auto' | 'local' | 'windows'
   type AiOcrStatus = 'running' | 'needsManual' | 'completed' | 'failed' | 'cancelled'
   type AiOcrStage = 'waitingResult' | 'manualTakeover' | 'completed' | 'cancelled'
 
@@ -87,10 +59,7 @@
   const isMobile = ref(window.innerWidth < 768)
   const isFullscreen = ref(false)
   const showChapterDrawer = ref(false)
-  const ocrProcessing = ref(false)
   const aiOcrProcessing = ref(false)
-  const showOcrModal = ref(false)
-  const pendingOcrPath = ref<string | null>(null)
   const showAiOcrModal = ref(false)
   const pendingAiOcrPath = ref<string | null>(null)
   const aiOcrSessionId = ref<string | null>(null)
@@ -98,13 +67,6 @@
   const aiOcrStage = ref<AiOcrStage | null>(null)
   const aiOcrStatusMessage = ref('')
   const aiOcrClipboardUnlisten = ref<UnlistenFn | null>(null)
-  const ocrMode = ref<OcrMode>('auto')
-  const ocrEngine = ref<OcrEngineChoice>('auto')
-  const ocrCorrectText = ref(true)
-  const pdfPageCount = ref<number | null>(null)
-  const ocrStartPage = ref<number | null>(null)
-  const ocrEndPage = ref<number | null>(null)
-  const ocrStatusText = ref('')
 
   const { sidebarWidth, editorRatio, onSidebarDragStart, onSplitDragStart } = useResizable(splitContainerRef)
   const {
@@ -120,9 +82,8 @@
 
   const showDrawerToggle = computed(() => isFullscreen.value || isMobile.value)
   const drawerVisible = computed(() => showDrawerToggle.value && showChapterDrawer.value)
-  const anyOcrProcessing = computed(() => ocrProcessing.value || aiOcrProcessing.value)
+  const anyOcrProcessing = computed(() => aiOcrProcessing.value)
   const exportStatusText = computed(() => exporting.value ? t('editor.exporting') : t('editor.exportReady'))
-  const pendingOcrIsPdf = computed(() => pendingOcrPath.value?.toLowerCase().endsWith('.pdf') ?? false)
   const aiOcrDisplayStatus = computed(() => {
     if (aiOcrProcessing.value) return aiOcrStatusMessage.value || t('editor.aiOcrStatusRunning')
     if (!aiOcrStatus.value) return t('editor.aiOcrStatusIdle')
@@ -138,17 +99,7 @@
         return aiOcrStatusMessage.value || t('editor.aiOcrStatusRunning')
     }
   })
-  const processingStatusText = computed(() => aiOcrProcessing.value ? aiOcrDisplayStatus.value : ocrStatusText.value)
-  const ocrModeOptions = computed<Array<{ value: OcrMode, label: string, desc: string }>>(() => ([
-    { value: 'auto', label: t('editor.ocrModeAuto'), desc: t('editor.ocrModeAutoDesc') },
-    { value: 'chinese', label: t('editor.ocrModeChinese'), desc: t('editor.ocrModeChineseDesc') },
-    { value: 'english', label: t('editor.ocrModeEnglish'), desc: t('editor.ocrModeEnglishDesc') },
-  ]))
-  const ocrEngineOptions = computed<Array<{ value: OcrEngineChoice, label: string, desc: string }>>(() => ([
-    { value: 'auto', label: t('editor.ocrEngineAuto'), desc: t('editor.ocrEngineAutoDesc') },
-    { value: 'local', label: t('editor.ocrEngineLocal'), desc: t('editor.ocrEngineLocalDesc') },
-    { value: 'windows', label: t('editor.ocrEngineWindows'), desc: t('editor.ocrEngineWindowsDesc') },
-  ]))
+  const processingStatusText = computed(() => aiOcrDisplayStatus.value)
 
   const formatExportIssue = (issue: string) => {
     switch (issue) {
@@ -221,162 +172,6 @@
 
   const handleContentChange = (value: string) => {
     editorStore.setContent(value)
-  }
-
-  const formatOcrWarning = (warning: string) => {
-    switch (warning) {
-      case 'LOCAL_UNAVAILABLE':
-        return t('editor.ocrFallbackWindows')
-      case 'LOCAL_EMPTY':
-        return t('editor.ocrFallbackNoText')
-      default:
-        if (!warning.startsWith('Local OCR mode:')) return warning
-
-        const mode = warning.replace('Local OCR mode:', '').trim()
-        const modeLabel = mode === 'chinese'
-          ? t('editor.ocrModeChinese')
-          : mode === 'english'
-            ? t('editor.ocrModeEnglish')
-            : t('editor.ocrModeAuto')
-        return t('editor.ocrModeApplied', { mode: modeLabel })
-    }
-  }
-
-  const ensureLocalOcrReady = async () => {
-    ocrStatusText.value = t('editor.ocrPreparing')
-    const status = await invoke<LocalOcrStatus>('prepare_local_ocr')
-    if (status.ready) return true
-
-    dialog.warning({
-      title: t('editor.ocrSetupTitle'),
-      content: status.needsPython
-        ? t('editor.ocrSetupPythonRequired')
-        : (status.message || t('editor.ocrSetupFailed')),
-      positiveText: t('editor.confirm'),
-    })
-    return false
-  }
-
-  const buildOcrRequest = (): OcrRequest | null => {
-    if (!pendingOcrPath.value) return null
-
-    if (!pendingOcrIsPdf.value) {
-      return {
-        path: pendingOcrPath.value,
-        mode: ocrMode.value,
-        engine: ocrEngine.value,
-        correctText: ocrCorrectText.value,
-      }
-    }
-
-    if (!ocrStartPage.value || !ocrEndPage.value || !pdfPageCount.value) {
-      message.error(t('editor.ocrPageRangeRequired'))
-      return null
-    }
-
-    if (!Number.isInteger(ocrStartPage.value) || !Number.isInteger(ocrEndPage.value)) {
-      message.error(t('editor.ocrPageRangeInvalid'))
-      return null
-    }
-
-    if (ocrStartPage.value < 1 || ocrEndPage.value < 1 || ocrStartPage.value > ocrEndPage.value) {
-      message.error(t('editor.ocrPageRangeInvalid'))
-      return null
-    }
-
-    if (ocrEndPage.value > pdfPageCount.value) {
-      message.error(t('editor.ocrPageRangeExceeded', { count: pdfPageCount.value }))
-      return null
-    }
-
-    return {
-      path: pendingOcrPath.value,
-      mode: ocrMode.value,
-      engine: ocrEngine.value,
-      correctText: ocrCorrectText.value,
-      pageRange: {
-        start: ocrStartPage.value,
-        end: ocrEndPage.value,
-      },
-    }
-  }
-
-  const handleOcr = async () => {
-    if (!isTauri()) {
-      message.warning(t('editor.ocrDesktopOnly'))
-      return
-    }
-
-    const selected = await open({
-      multiple: false,
-      filters: [{ name: 'Scans', extensions: ['png', 'jpg', 'jpeg', 'bmp', 'tiff', 'tif', 'pdf'] }],
-    })
-    if (!selected) return
-
-    pendingOcrPath.value = selected as string
-    pdfPageCount.value = null
-    ocrStartPage.value = null
-    ocrEndPage.value = null
-
-    if (pendingOcrIsPdf.value) {
-      try {
-        const count = await invoke<number>('get_pdf_page_count', { path: pendingOcrPath.value })
-        pdfPageCount.value = count
-        ocrStartPage.value = 1
-        ocrEndPage.value = count
-      } catch (error) {
-        const reason = error instanceof Error ? error.message : String(error)
-        message.error(`${t('editor.ocrFailed')}: ${reason}`)
-        pendingOcrPath.value = null
-        return
-      }
-    }
-
-    showOcrModal.value = true
-  }
-
-  const confirmOcr = async () => {
-    const request = buildOcrRequest()
-    if (!request) return
-    showOcrModal.value = false
-
-    ocrProcessing.value = true
-    try {
-      if (ocrEngine.value !== 'windows') {
-        const localReady = await ensureLocalOcrReady()
-        if (!localReady) return
-      }
-
-      ocrStatusText.value = t('editor.ocrProcessing')
-      const result = await invoke<OcrResponse>('ocr_document', { request })
-      if (!result.text.trim()) {
-        message.warning(t('editor.ocrNoText'))
-        return
-      }
-
-      editorActions.value?.insertText(result.text)
-      message.success(
-        result.engine === 'local'
-          ? t('editor.ocrSuccessLocal')
-          : t('editor.ocrSuccessWindows'),
-      )
-      if (result.corrected) {
-        message.info(t('editor.ocrCorrectionApplied'))
-      }
-      if (result.warning) {
-        message.warning(formatOcrWarning(result.warning))
-      }
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error)
-      message.error(`${t('editor.ocrFailed')}: ${reason}`)
-    } finally {
-      pendingOcrPath.value = null
-      pdfPageCount.value = null
-      ocrStartPage.value = null
-      ocrEndPage.value = null
-      ocrStatusText.value = ''
-      ocrProcessing.value = false
-    }
   }
 
   const handleAiOcr = async () => {
@@ -471,14 +266,6 @@
     aiOcrStatus.value = 'cancelled'
     aiOcrStage.value = 'cancelled'
     aiOcrStatusMessage.value = t('editor.aiOcrStatusCancelled')
-  }
-
-  const cancelOcr = () => {
-    showOcrModal.value = false
-    pendingOcrPath.value = null
-    pdfPageCount.value = null
-    ocrStartPage.value = null
-    ocrEndPage.value = null
   }
 
   const openDevtools = async () => {
@@ -694,7 +481,7 @@
     <main class="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden" @click="handleEditorAreaClick">
       <EditorToolbar :editor-ref="editorActions" :exporting="exporting" :ocr-processing="anyOcrProcessing"
         :show-chapter-toggle="showDrawerToggle" :chapter-toggle-active="showChapterDrawer" :sync-scroll="syncScroll"
-        :compact="isMobile" @export="handleExport" @ocr="handleOcr" @ai-ocr="handleAiOcr" @fullscreen="toggleFullscreen"
+        :compact="isMobile" @export="handleExport" @ai-ocr="handleAiOcr" @fullscreen="toggleFullscreen"
         @open-devtools="openDevtools" @toggle-chapter="showChapterDrawer = !showChapterDrawer"
         @toggle-scroll-sync="onMenuScrollSync" />
 
@@ -753,68 +540,6 @@
         <div class="flex justify-end gap-2">
           <NButton @click="showAddChapter = false">{{ t('home.cancel') }}</NButton>
           <NButton type="primary" @click="handleAddChapter">{{ t('editor.addChapter') }}</NButton>
-        </div>
-      </template>
-    </NModal>
-
-    <NModal v-model:show="showOcrModal" preset="card" :title="t('editor.ocrModeTitle')" class="max-w-md">
-      <div class="ocr-mode-list">
-        <button
-          v-for="option in ocrModeOptions"
-          :key="option.value"
-          type="button"
-          class="ocr-mode-option"
-          :class="{ active: ocrMode === option.value }"
-          @click="ocrMode = option.value"
-        >
-          <span class="ocr-mode-label">{{ option.label }}</span>
-          <span class="ocr-mode-desc">{{ option.desc }}</span>
-        </button>
-      </div>
-      <div class="ocr-range-panel">
-        <div class="ocr-range-header">
-          <span class="ocr-range-title">{{ t('editor.ocrEngineTitle') }}</span>
-        </div>
-        <div class="ocr-mode-list">
-          <button
-            v-for="option in ocrEngineOptions"
-            :key="option.value"
-            type="button"
-            class="ocr-mode-option"
-            :class="{ active: ocrEngine === option.value }"
-            @click="ocrEngine = option.value"
-          >
-            <span class="ocr-mode-label">{{ option.label }}</span>
-            <span class="ocr-mode-desc">{{ option.desc }}</span>
-          </button>
-        </div>
-      </div>
-      <div class="ocr-range-panel">
-        <NCheckbox v-model:checked="ocrCorrectText">
-          {{ t('editor.ocrAutoCorrect') }}
-        </NCheckbox>
-        <p class="ocr-range-note">{{ t('editor.ocrAutoCorrectDesc') }}</p>
-      </div>
-      <div v-if="pendingOcrIsPdf" class="ocr-range-panel">
-        <div class="ocr-range-header">
-          <span class="ocr-range-title">{{ t('editor.ocrPageRangeTitle') }}</span>
-          <span class="ocr-range-count">{{ t('editor.ocrPageCount', { count: pdfPageCount ?? 0 }) }}</span>
-        </div>
-        <div class="ocr-range-inputs">
-          <label class="ocr-range-field">
-            <span class="ocr-range-label">{{ t('editor.ocrStartPage') }}</span>
-            <NInputNumber v-model:value="ocrStartPage" :min="1" :max="pdfPageCount ?? undefined" />
-          </label>
-          <label class="ocr-range-field">
-            <span class="ocr-range-label">{{ t('editor.ocrEndPage') }}</span>
-            <NInputNumber v-model:value="ocrEndPage" :min="1" :max="pdfPageCount ?? undefined" />
-          </label>
-        </div>
-      </div>
-      <template #action>
-        <div class="flex justify-end gap-2">
-          <NButton @click="cancelOcr">{{ t('home.cancel') }}</NButton>
-          <NButton type="primary" :loading="ocrProcessing" @click="confirmOcr">{{ t('editor.confirmOcr') }}</NButton>
         </div>
       </template>
     </NModal>
@@ -914,88 +639,6 @@
   .mobile-tab.active {
     color: var(--primary);
     background: var(--bg-active);
-  }
-
-  .ocr-mode-list {
-    display: grid;
-    gap: 8px;
-  }
-
-  .ocr-mode-option {
-    display: grid;
-    gap: 4px;
-    width: 100%;
-    padding: 12px;
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
-    text-align: left;
-    background: var(--bg-surface);
-    transition: border-color 0.2s ease, background 0.2s ease;
-    cursor: pointer;
-  }
-
-  .ocr-mode-option.active {
-    border-color: var(--primary);
-    background: var(--bg-active);
-  }
-
-  .ocr-mode-option:hover {
-    border-color: var(--primary);
-    background: var(--bg-active);
-  }
-
-  .ocr-mode-label {
-    color: var(--text-primary);
-    font-size: 14px;
-  }
-
-  .ocr-mode-desc {
-    color: var(--text-muted);
-    font-size: 12px;
-    line-height: 1.4;
-  }
-
-  .ocr-range-panel {
-    margin-top: 12px;
-    padding-top: 12px;
-    border-top: 1px solid var(--border-color);
-  }
-
-  .ocr-range-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    margin-bottom: 10px;
-  }
-
-  .ocr-range-title {
-    color: var(--text-primary);
-    font-size: 14px;
-  }
-
-  .ocr-range-count,
-  .ocr-range-label {
-    color: var(--text-muted);
-    font-size: 12px;
-  }
-
-  .ocr-range-note {
-    margin: 8px 0 0;
-    color: var(--text-muted);
-    font-size: 12px;
-    line-height: 1.4;
-  }
-
-  .ocr-range-inputs {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 12px;
-  }
-
-  .ocr-range-field {
-    display: grid;
-    gap: 6px;
   }
 
   .ocr-overlay {

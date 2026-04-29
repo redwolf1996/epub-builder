@@ -182,42 +182,6 @@ pub fn start_session(
     Ok(to_response(session))
 }
 
-pub fn continue_session(
-    state: &DoubaoAutomationState,
-    session_id: &str,
-) -> Result<DoubaoOcrResponse, String> {
-    let mut session = state.get(session_id)?;
-
-    if session.status == "completed" {
-        return Ok(to_response(session));
-    }
-
-    ensure_doubao_window()?;
-    session.status = "running".to_string();
-    session.stage = "waitingResult".to_string();
-    session.message = Some("Reading the copied Doubao response".to_string());
-    state.save(session.clone())?;
-
-    match read_manual_copied_response(session.clipboard_marker.as_deref()) {
-        Ok(result_text) => {
-            session.status = "completed".to_string();
-            session.stage = "completed".to_string();
-            session.message = Some("Doubao OCR completed".to_string());
-            session.result_text = Some(result_text);
-        }
-        Err(error) => {
-            session.status = "needsManual".to_string();
-            session.stage = "manualTakeover".to_string();
-            session.message = Some(format!(
-                "No copied reply was detected yet. Finish the reply in Doubao, click copy manually, then try again. {error}"
-            ));
-        }
-    }
-
-    state.save(session.clone())?;
-    Ok(to_response(session))
-}
-
 pub fn cancel_session(
     state: &DoubaoAutomationState,
     session_id: &str,

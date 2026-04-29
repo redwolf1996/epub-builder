@@ -16,7 +16,6 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   export: []
-  ocr: []
   aiOcr: []
   openDevtools: []
   fullscreen: []
@@ -215,14 +214,6 @@ const handleMoreSelect = (key: string) => {
           </NButton>
         </template>
         {{ t('toolbar.image') }}
-      </NTooltip>
-      <NTooltip trigger="hover">
-        <template #trigger>
-          <NButton quaternary size="tiny" :loading="props.ocrProcessing" :disabled="props.ocrProcessing" @click="emit('ocr')">
-            <span v-if="!props.ocrProcessing" class="i-carbon-scan text-sm" />
-          </NButton>
-        </template>
-        {{ t('toolbar.ocr') }}
       </NTooltip>
       <NTooltip trigger="hover">
         <template #trigger>

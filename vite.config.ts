@@ -3,6 +3,10 @@ import vue from '@vitejs/plugin-vue'
 import unocss from 'unocss/vite'
 import { fileURLToPath, URL } from 'node:url'
 
+const matchesPackage = (id: string, pkg: string) => {
+  return id.includes(`/node_modules/${pkg}/`)
+}
+
 export default defineConfig({
   define: {
     __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
@@ -35,10 +39,12 @@ export default defineConfig({
             if (id.includes('epub-gen-memory')) {
               return 'epub-gen'
             }
-            if (id.includes('naive-ui') || id.includes('date-fns') || id.includes('evtd') || id.includes('css-render') || id.includes('treemate') || id.includes('vooks') || id.includes('vdirs')) {
-              return 'naive-ui'
-            }
-            if (id.includes('vue') || id.includes('pinia') || id.includes('vue-router') || id.includes('vue-i18n')) {
+            if (
+              matchesPackage(id, 'vue')
+              || matchesPackage(id, 'pinia')
+              || matchesPackage(id, 'vue-router')
+              || matchesPackage(id, 'vue-i18n')
+            ) {
               return 'vue-vendor'
             }
           }

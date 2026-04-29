@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+  import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
   import { useRoute } from 'vue-router'
   import { useI18n } from 'vue-i18n'
   import { NButton, NInput, NModal, NScrollbar, useDialog, useMessage } from 'naive-ui'
@@ -13,11 +13,11 @@
   import { useResizable } from '@/composables/useResizable'
   import { useChapterManager } from '@/composables/useChapterManager'
   import { useScrollSync } from '@/composables/useScrollSync'
-  import CodeMirrorEditor from '@/components/editor/CodeMirrorEditor.vue'
   import type { EditorActions } from '@/components/editor/EditorToolbar.vue'
-  import EditorToolbar from '@/components/editor/EditorToolbar.vue'
-  import MarkdownPreview from '@/components/preview/MarkdownPreview.vue'
-  import ChapterNode from '@/components/editor/ChapterNode.vue'
+  const CodeMirrorEditor = defineAsyncComponent(() => import('@/components/editor/CodeMirrorEditor.vue'))
+  const EditorToolbar = defineAsyncComponent(() => import('@/components/editor/EditorToolbar.vue'))
+  const MarkdownPreview = defineAsyncComponent(() => import('@/components/preview/MarkdownPreview.vue'))
+  const ChapterNode = defineAsyncComponent(() => import('@/components/editor/ChapterNode.vue'))
 
   type AiOcrStatus = 'running' | 'needsManual' | 'completed' | 'failed' | 'cancelled'
   type AiOcrStage = 'waitingResult' | 'manualTakeover' | 'completed' | 'cancelled'

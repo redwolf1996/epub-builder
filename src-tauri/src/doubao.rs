@@ -345,20 +345,6 @@ fn start_clipboard_watch(
     });
 }
 
-fn start_reply_watch(
-    app: AppHandle,
-    watch_id: Arc<AtomicU64>,
-    current_watch: u64,
-    session_id: String,
-    hwnd: isize,
-) {
-    thread::spawn(move || {
-        if let Ok(text) = wait_for_latest_reply_text(hwnd, &watch_id, current_watch) {
-            let _ = try_emit_result(&app, &watch_id, current_watch, &session_id, text, None);
-        }
-    });
-}
-
 fn submit_ocr_request(target: DoubaoWindowTarget, file_path: &str) -> Result<(), String> {
     debug_log(&format!(
         "submit_ocr_request hwnd={} mode={:?} file={}",
@@ -1415,7 +1401,6 @@ impl AutomationSession {
         debug_log_visible_nodes(&result);
         Ok(result)
     }
-
 }
 
 #[cfg(target_os = "windows")]

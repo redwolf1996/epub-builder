@@ -1,2 +1,2 @@
 # epub-builder
-make epub book from by markdown
+Make epub books by markdown

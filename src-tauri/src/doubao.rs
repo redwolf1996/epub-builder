@@ -3,6 +3,8 @@
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
+    fs::{File, OpenOptions, create_dir_all},
+    io::Write,
     path::Path,
     process::Command,
     sync::{
@@ -27,15 +29,27 @@ const REPLY_READY_TIMEOUT: Duration = Duration::from_secs(600);
 const DOUBAO_EXE_PATH: &str = r"C:\Users\Administrator\AppData\Local\Doubao\Application\app\Doubao.exe";
 const DOUBAO_EXE_FALLBACK_PATH: &str =
     r"C:\Users\Administrator\AppData\Local\Doubao\Application\Doubao.exe";
-const OCR_PROMPT: &str = "请帮我提取文件中的文字，只保留提取的文字，不要加其他任何信息";
+const OCR_PROMPT: &str = "请返回所传文件的文本，不作其他说明";
 
 const INPUT_X_RATIO: f64 = 0.5;
 const INPUT_Y_OFFSET: i32 = 132;
-const NEW_CHAT_FALLBACK_POINTS: [(f64, f64); 3] = [
+const SMALL_WINDOW_INPUT_FALLBACK_POINTS: [(f64, f64); 4] = [
+    (0.22, 0.91),
+    (0.3, 0.89),
+    (0.38, 0.89),
+    (0.48, 0.89),
+];
+const MAIN_WINDOW_NEW_CHAT_FALLBACK_POINTS: [(f64, f64); 3] = [
     (0.19, 0.07),
     (0.168, 0.07),
     (0.205, 0.07),
 ];
+const SMALL_WINDOW_NEW_CHAT_FALLBACK_POINTS: [(f64, f64); 3] = [
+    (0.055, 0.055),
+    (0.08, 0.055),
+    (0.1, 0.06),
+];
+const SMALL_WINDOW_TOGGLE_DELAY: Duration = Duration::from_millis(650);
 #[cfg(target_os = "windows")]
 const INPUT_HINT_LABELS: [&str; 6] = ["输入", "提问", "发送", "message", "prompt", "chat"];
 #[cfg(target_os = "windows")]
@@ -71,6 +85,27 @@ struct DoubaoSession {
     message: Option<String>,
     result_text: Option<String>,
     clipboard_marker: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DoubaoWindowMode {
+    MainWindow,
+    SmallWindow,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct DoubaoWindowTarget {
+    hwnd: isize,
+    mode: DoubaoWindowMode,
+}
+
+#[cfg(target_os = "windows")]
+#[derive(Clone, Debug)]
+struct WindowCandidate {
+    hwnd: isize,
+    title: String,
+    rect: RECT,
+    process_id: u32,
 }
 
 #[cfg(target_os = "windows")]
@@ -134,6 +169,7 @@ pub fn start_session(
     state: &DoubaoAutomationState,
     request: &DoubaoOcrRequest,
 ) -> Result<DoubaoOcrResponse, String> {
+    debug_log("========================================");
     if request.provider != "doubao" {
         return Err("Unsupported AI OCR provider".to_string());
     }
@@ -142,20 +178,30 @@ pub fn start_session(
         return Err("Selected file does not exist".to_string());
     }
 
-    debug_log("========================================");
     debug_log(&format!("start_session file={}", request.file_path));
 
-    let hwnd = ensure_doubao_window()?;
-    start_new_conversation(hwnd)?;
-    submit_ocr_request(hwnd, &request.file_path)?;
+    let target = match ensure_doubao_small_window() {
+        Ok(target) => target,
+        Err(error) => {
+            debug_log(&format!("small_window_unavailable fallback_to_main reason={error}"));
+            DoubaoWindowTarget {
+                hwnd: ensure_doubao_window()?,
+                mode: DoubaoWindowMode::MainWindow,
+            }
+        }
+    };
+    debug_capture_window_snapshot(target.hwnd, "target-detected");
+    start_new_conversation(target)?;
+    debug_capture_window_snapshot(target.hwnd, "after-new-conversation");
+    submit_ocr_request(target, &request.file_path)?;
+    debug_capture_window_snapshot(target.hwnd, "after-submit-request");
 
     let marker_seed = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|error| error.to_string())?
         .as_nanos();
     let marker = format!("__doubao_manual_copy_marker_{marker_seed}__");
-    let backup = replace_clipboard_text(&marker)?;
-    restore_clipboard_text(backup);
+    replace_clipboard_text(&marker)?;
 
     let session_id = state.next_session_id();
     let session = DoubaoSession {
@@ -163,12 +209,16 @@ pub fn start_session(
         provider: request.provider.clone(),
         status: "needsManual".to_string(),
         stage: "manualTakeover".to_string(),
-        message: Some(
-            "Doubao request sent. Wait for the reply in Doubao, click copy manually, and the app will import it automatically."
-                .to_string(),
-        ),
+        message: Some(match target.mode {
+            DoubaoWindowMode::SmallWindow =>
+                "Doubao small window is ready. Wait for the reply, copy it in Doubao, and the app will minimize the small window and import the text automatically."
+                    .to_string(),
+            DoubaoWindowMode::MainWindow =>
+                "Doubao request was sent in the main window fallback flow. Wait for the reply, copy it in Doubao, and the app will import the text automatically."
+                    .to_string(),
+        }),
         result_text: None,
-        clipboard_marker: Some(marker),
+        clipboard_marker: Some(marker.clone()),
     };
 
     state.save(session.clone())?;
@@ -176,8 +226,9 @@ pub fn start_session(
         app.clone(),
         state.clipboard_watch_id.clone(),
         session.session_id.clone(),
-        read_clipboard_text().unwrap_or_default(),
+        marker.clone(),
         request.file_path.clone(),
+        Some(target),
     );
     Ok(to_response(session))
 }
@@ -242,6 +293,7 @@ fn start_manual_watch(
     session_id: String,
     baseline: String,
     file_path: String,
+    target: Option<DoubaoWindowTarget>,
 ) {
     let current_watch = watch_id.fetch_add(1, Ordering::Relaxed) + 1;
 
@@ -252,6 +304,7 @@ fn start_manual_watch(
         session_id,
         baseline,
         file_path,
+        target,
     );
 }
 
@@ -262,6 +315,7 @@ fn start_clipboard_watch(
     session_id: String,
     baseline: String,
     file_path: String,
+    target: Option<DoubaoWindowTarget>,
 ) {
     thread::spawn(move || {
         let start = Instant::now();
@@ -280,7 +334,7 @@ fn start_clipboard_watch(
                     && trimmed != OCR_PROMPT
                     && trimmed != file_path_trimmed
                     && is_importable_ocr_text(trimmed)
-                    && try_emit_result(&app, &watch_id, current_watch, &session_id, text)
+                    && try_emit_result(&app, &watch_id, current_watch, &session_id, text, target)
                 {
                     return;
                 }
@@ -300,26 +354,38 @@ fn start_reply_watch(
 ) {
     thread::spawn(move || {
         if let Ok(text) = wait_for_latest_reply_text(hwnd, &watch_id, current_watch) {
-            let _ = try_emit_result(&app, &watch_id, current_watch, &session_id, text);
+            let _ = try_emit_result(&app, &watch_id, current_watch, &session_id, text, None);
         }
     });
 }
 
-fn submit_ocr_request(hwnd: isize, file_path: &str) -> Result<(), String> {
-    focus_doubao_window(hwnd);
-    click_input_box(hwnd)?;
+fn submit_ocr_request(target: DoubaoWindowTarget, file_path: &str) -> Result<(), String> {
+    debug_log(&format!(
+        "submit_ocr_request hwnd={} mode={:?} file={}",
+        target.hwnd, target.mode, file_path
+    ));
+    ensure_target_foreground(target.hwnd)?;
+    click_input_box(target)?;
     thread::sleep(WINDOW_FOCUS_DELAY);
 
+    ensure_target_foreground(target.hwnd)?;
     set_clipboard_file(file_path)?;
+    debug_log("clipboard_file_staged");
     paste_shortcut()?;
     thread::sleep(FILE_PASTE_DELAY);
+    debug_log("file_paste_sent");
 
+    ensure_target_foreground(target.hwnd)?;
     let backup = replace_clipboard_text(OCR_PROMPT)?;
+    debug_log("prompt_staged");
     paste_shortcut()?;
     thread::sleep(PROMPT_PASTE_DELAY);
     restore_clipboard_text(backup);
+    debug_log("prompt_paste_sent");
 
+    ensure_target_foreground(target.hwnd)?;
     press_enter()?;
+    debug_log("enter_sent");
     Ok(())
 }
 
@@ -333,6 +399,7 @@ fn try_emit_result(
     current_watch: u64,
     session_id: &str,
     text: String,
+    target: Option<DoubaoWindowTarget>,
 ) -> bool {
     if watch_id
         .compare_exchange(
@@ -352,6 +419,10 @@ fn try_emit_result(
         preview_text(&text, 160)
     ));
 
+    if let Some(target) = target {
+        maybe_minimize_small_window(target);
+    }
+
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.set_focus();
@@ -367,35 +438,49 @@ fn try_emit_result(
 }
 
 #[cfg(target_os = "windows")]
-fn start_new_conversation(hwnd: isize) -> Result<(), String> {
-    focus_doubao_window(hwnd);
-    let session = AutomationSession::new(hwnd)?;
-    if let Some(target) = session.find_new_chat_target()? {
-        let rect = unsafe { target.CurrentBoundingRectangle() }.map_err(|error| {
+fn start_new_conversation(target: DoubaoWindowTarget) -> Result<(), String> {
+    debug_log(&format!(
+        "start_new_conversation hwnd={} mode={:?}",
+        target.hwnd, target.mode
+    ));
+    focus_doubao_window(target.hwnd);
+    let session = AutomationSession::new(target.hwnd)?;
+    if let Some(button) = session.find_new_chat_target()? {
+        let rect = unsafe { button.CurrentBoundingRectangle() }.map_err(|error| {
             format!("Failed to inspect Doubao new conversation button: {error}")
         })?;
+        debug_log(&format!(
+            "new_chat_click rect=({}, {}, {}, {})",
+            rect.left, rect.top, rect.right, rect.bottom
+        ));
         click_rect_center(rect)?;
     } else {
-        click_new_chat_fallback(session.window_rect)?;
+        debug_log("new_chat_uia_not_found_fallback");
+        click_new_chat_fallback(session.window_rect, target.mode)?;
     }
     thread::sleep(NEW_CHAT_DELAY);
     Ok(())
 }
 
 #[cfg(not(target_os = "windows"))]
-fn start_new_conversation(_hwnd: isize) -> Result<(), String> {
+fn start_new_conversation(_target: DoubaoWindowTarget) -> Result<(), String> {
     Err("Doubao desktop automation is only supported on Windows".to_string())
 }
 
 #[cfg(target_os = "windows")]
-fn click_new_chat_fallback(window_rect: RECT) -> Result<(), String> {
+fn click_new_chat_fallback(window_rect: RECT, mode: DoubaoWindowMode) -> Result<(), String> {
     let width = window_rect.right - window_rect.left;
     let height = window_rect.bottom - window_rect.top;
+    let fallback_points = match mode {
+        DoubaoWindowMode::MainWindow => MAIN_WINDOW_NEW_CHAT_FALLBACK_POINTS.as_slice(),
+        DoubaoWindowMode::SmallWindow => SMALL_WINDOW_NEW_CHAT_FALLBACK_POINTS.as_slice(),
+    };
 
     let mut last_error: Option<String> = None;
-    for (x_ratio, y_ratio) in NEW_CHAT_FALLBACK_POINTS {
+    for (x_ratio, y_ratio) in fallback_points {
         let x = window_rect.left + (width as f64 * x_ratio) as i32;
         let y = window_rect.top + (height as f64 * y_ratio) as i32;
+        debug_log(&format!("new_chat_fallback_click x={} y={} mode={:?}", x, y, mode));
         if let Err(error) = click_screen_point(x, y) {
             last_error = Some(error);
             continue;
@@ -536,7 +621,14 @@ fn should_skip_reply_line(line: &str) -> bool {
     {
         return true;
     }
-    if compact.contains("请帮我提取文件中的文字") {
+    if compact.contains(&OCR_PROMPT.to_lowercase()) {
+        return true;
+    }
+    if compact.contains("doubao small window is ready")
+        || compact.contains("main window fallback flow")
+        || compact.contains("copy it in doubao")
+        || compact.contains("import the text automatically")
+    {
         return true;
     }
     if compact == "复制" || compact == "继续导入" {
@@ -554,6 +646,14 @@ fn is_importable_ocr_text(text: &str) -> bool {
         return false;
     }
     if trimmed.eq_ignore_ascii_case("copy") || trimmed == "复制" || trimmed == "继续导入" {
+        return false;
+    }
+    let lowered = trimmed.to_lowercase();
+    if lowered.contains("doubao small window is ready")
+        || lowered.contains("main window fallback flow")
+        || lowered.contains("copy it in doubao")
+        || lowered.contains("import the text automatically")
+    {
         return false;
     }
 
@@ -598,7 +698,194 @@ fn preview_text(text: &str, max_chars: usize) -> String {
 }
 
 fn debug_log(message: &str) {
-    let _ = message;
+    let log_dir = std::env::temp_dir().join("epub-builder");
+    let _ = create_dir_all(&log_dir);
+    let log_path = log_dir.join("doubao-ocr.log");
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(log_path) {
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|value| value.as_millis())
+            .unwrap_or_default();
+        let _ = writeln!(file, "[{timestamp}] {message}");
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn debug_capture_window_snapshot(hwnd: isize, label: &str) {
+    let hwnd = HWND(hwnd as *mut core::ffi::c_void);
+    let Some(rect) = window_rect(hwnd) else {
+        debug_log(&format!("snapshot_skip label={label} reason=no-window-rect"));
+        return;
+    };
+
+    let width = rect.right - rect.left;
+    let height = rect.bottom - rect.top;
+    if width <= 0 || height <= 0 {
+        debug_log(&format!(
+            "snapshot_skip label={label} reason=invalid-size width={} height={}",
+            width, height
+        ));
+        return;
+    }
+
+    let Some(buffer) = capture_screen_rect_bgra(rect, width, height) else {
+        debug_log(&format!("snapshot_skip label={label} reason=capture-failed"));
+        return;
+    };
+
+    let captures_dir = std::env::temp_dir().join("epub-builder").join("captures");
+    let _ = create_dir_all(&captures_dir);
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|value| value.as_millis())
+        .unwrap_or_default();
+    let safe_label = label
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    let path = captures_dir.join(format!("{timestamp}-{safe_label}.bmp"));
+
+    match write_bmp_file(&path, width, height, &buffer) {
+        Ok(()) => debug_log(&format!(
+            "snapshot_saved label={label} path={} rect=({}, {}, {}, {}) size={}x{}",
+            path.display(),
+            rect.left,
+            rect.top,
+            rect.right,
+            rect.bottom,
+            width,
+            height
+        )),
+        Err(error) => debug_log(&format!("snapshot_skip label={label} reason={error}")),
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn debug_capture_window_snapshot(_hwnd: isize, _label: &str) {}
+
+#[cfg(target_os = "windows")]
+fn capture_screen_rect_bgra(rect: RECT, width: i32, height: i32) -> Option<Vec<u8>> {
+    unsafe {
+        let screen_dc = GetDC(None);
+        if screen_dc.0.is_null() {
+            return None;
+        }
+
+        let memory_dc = CreateCompatibleDC(Some(screen_dc));
+        if memory_dc.0.is_null() {
+            let _ = ReleaseDC(None, screen_dc);
+            return None;
+        }
+
+        let bitmap = CreateCompatibleBitmap(screen_dc, width, height);
+        if bitmap.0.is_null() {
+            let _ = DeleteDC(memory_dc);
+            let _ = ReleaseDC(None, screen_dc);
+            return None;
+        }
+
+        let old = SelectObject(memory_dc, HGDIOBJ(bitmap.0));
+        let blit_ok = BitBlt(
+            memory_dc,
+            0,
+            0,
+            width,
+            height,
+            Some(screen_dc),
+            rect.left,
+            rect.top,
+            SRCCOPY,
+        )
+        .is_ok();
+
+        let mut bmi = BITMAPINFO {
+            bmiHeader: BITMAPINFOHEADER {
+                biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: width,
+                biHeight: -height,
+                biPlanes: 1,
+                biBitCount: 32,
+                biCompression: BI_RGB.0,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let mut buffer = vec![0u8; (width * height * 4) as usize];
+        let rows = if blit_ok {
+            GetDIBits(
+                memory_dc,
+                bitmap,
+                0,
+                height as u32,
+                Some(buffer.as_mut_ptr() as *mut core::ffi::c_void),
+                &mut bmi,
+                DIB_RGB_COLORS,
+            )
+        } else {
+            0
+        };
+
+        let _ = SelectObject(memory_dc, old);
+        let _ = DeleteObject(HGDIOBJ(bitmap.0));
+        let _ = DeleteDC(memory_dc);
+        let _ = ReleaseDC(None, screen_dc);
+
+        if rows == 0 {
+            None
+        } else {
+            Some(buffer)
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn write_bmp_file(path: &Path, width: i32, height: i32, buffer: &[u8]) -> Result<(), String> {
+    let mut file = File::create(path).map_err(|error| error.to_string())?;
+    let file_header_size = 14u32;
+    let info_header_size = 40u32;
+    let pixel_bytes = buffer.len() as u32;
+    let file_size = file_header_size + info_header_size + pixel_bytes;
+
+    file.write_all(b"BM").map_err(|error| error.to_string())?;
+    file.write_all(&file_size.to_le_bytes())
+        .map_err(|error| error.to_string())?;
+    file.write_all(&0u16.to_le_bytes())
+        .map_err(|error| error.to_string())?;
+    file.write_all(&0u16.to_le_bytes())
+        .map_err(|error| error.to_string())?;
+    file.write_all(&(file_header_size + info_header_size).to_le_bytes())
+        .map_err(|error| error.to_string())?;
+
+    file.write_all(&info_header_size.to_le_bytes())
+        .map_err(|error| error.to_string())?;
+    file.write_all(&width.to_le_bytes())
+        .map_err(|error| error.to_string())?;
+    file.write_all(&(-height).to_le_bytes())
+        .map_err(|error| error.to_string())?;
+    file.write_all(&1u16.to_le_bytes())
+        .map_err(|error| error.to_string())?;
+    file.write_all(&32u16.to_le_bytes())
+        .map_err(|error| error.to_string())?;
+    file.write_all(&0u32.to_le_bytes())
+        .map_err(|error| error.to_string())?;
+    file.write_all(&pixel_bytes.to_le_bytes())
+        .map_err(|error| error.to_string())?;
+    file.write_all(&0u32.to_le_bytes())
+        .map_err(|error| error.to_string())?;
+    file.write_all(&0u32.to_le_bytes())
+        .map_err(|error| error.to_string())?;
+    file.write_all(&0u32.to_le_bytes())
+        .map_err(|error| error.to_string())?;
+    file.write_all(&0u32.to_le_bytes())
+        .map_err(|error| error.to_string())?;
+    file.write_all(buffer).map_err(|error| error.to_string())?;
+    Ok(())
 }
 
 #[cfg(target_os = "windows")]
@@ -699,8 +986,58 @@ fn available_exe_paths() -> Vec<&'static str> {
 }
 
 #[cfg(target_os = "windows")]
+fn ensure_doubao_small_window() -> Result<DoubaoWindowTarget, String> {
+    debug_log("ensure_doubao_small_window begin");
+    if let Some(hwnd) = find_existing_doubao_small_window() {
+        debug_log(&format!("existing_small_window hwnd={hwnd}"));
+        return Ok(DoubaoWindowTarget {
+            hwnd,
+            mode: DoubaoWindowMode::SmallWindow,
+        });
+    }
+
+    let existing_main_hwnd = find_doubao_window();
+    let main_hwnd = match existing_main_hwnd {
+        Some(hwnd) => hwnd,
+        None => ensure_doubao_window()?,
+    };
+    debug_log(&format!("main_hwnd_for_small_window={main_hwnd}"));
+    let known_process_id = window_process_id(HWND(main_hwnd as *mut core::ffi::c_void));
+    let baseline_hwnds = collect_doubao_window_hwnds();
+    debug_log(&format!("baseline_hwnds={:?}", baseline_hwnds));
+
+    toggle_small_window()?;
+    let start = Instant::now();
+    while start.elapsed() < WINDOW_START_TIMEOUT {
+        if let Some(hwnd) = find_recent_doubao_small_window(&baseline_hwnds, known_process_id) {
+            debug_log(&format!("recent_small_window hwnd={hwnd}"));
+            return Ok(DoubaoWindowTarget {
+                hwnd,
+                mode: DoubaoWindowMode::SmallWindow,
+            });
+        }
+        if let Some(hwnd) = find_doubao_small_window(main_hwnd) {
+            debug_log(&format!("derived_small_window hwnd={hwnd}"));
+            return Ok(DoubaoWindowTarget {
+                hwnd,
+                mode: DoubaoWindowMode::SmallWindow,
+            });
+        }
+        thread::sleep(Duration::from_millis(250));
+    }
+
+    Err("Doubao small window did not appear in time".to_string())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn ensure_doubao_small_window() -> Result<DoubaoWindowTarget, String> {
+    Err("Doubao desktop automation is only supported on Windows".to_string())
+}
+
+#[cfg(target_os = "windows")]
 fn ensure_doubao_window() -> Result<isize, String> {
     if let Some(hwnd) = find_doubao_window() {
+        debug_log(&format!("reuse_main_window hwnd={hwnd}"));
         return Ok(hwnd);
     }
 
@@ -739,6 +1076,27 @@ fn ensure_doubao_window() -> Result<isize, String> {
 }
 
 #[cfg(target_os = "windows")]
+fn toggle_small_window() -> Result<(), String> {
+    debug_log("toggle_small_window alt+space");
+    press_alt_space()?;
+    thread::sleep(SMALL_WINDOW_TOGGLE_DELAY);
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn maybe_minimize_small_window(target: DoubaoWindowTarget) {
+    if target.mode != DoubaoWindowMode::SmallWindow {
+        return;
+    }
+
+    let _ = focus_window_without_restore(target.hwnd);
+    let _ = toggle_small_window();
+}
+
+#[cfg(not(target_os = "windows"))]
+fn maybe_minimize_small_window(_target: DoubaoWindowTarget) {}
+
+#[cfg(target_os = "windows")]
 use windows::{
     core::BOOL,
     Win32::{
@@ -759,15 +1117,22 @@ use windows::{
             Input::KeyboardAndMouse::{
                 SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT,
                 KEYEVENTF_KEYUP, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEINPUT,
-                VIRTUAL_KEY, VK_CONTROL,
+                VIRTUAL_KEY, VK_CONTROL, VK_MENU, VK_SPACE,
             },
             WindowsAndMessaging::{
-                EnumWindows, GetClientRect, GetCursorPos, GetWindowTextLengthW, GetWindowTextW,
-                IsIconic, IsWindowVisible, SetCursorPos, SetForegroundWindow, ShowWindow,
-                SW_RESTORE,
+                EnumWindows, GetClientRect, GetCursorPos, GetForegroundWindow, GetWindowRect,
+                GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, IsIconic,
+                IsWindowVisible, SetCursorPos, SetForegroundWindow, ShowWindow, SW_RESTORE,
             },
         },
     },
+};
+
+#[cfg(target_os = "windows")]
+use windows::Win32::Graphics::Gdi::{
+    BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BitBlt, CreateCompatibleBitmap, CreateCompatibleDC,
+    DIB_RGB_COLORS, DeleteDC, DeleteObject, GetDC, GetDIBits, HGDIOBJ, ReleaseDC, SRCCOPY,
+    SelectObject,
 };
 
 #[cfg(target_os = "windows")]
@@ -840,6 +1205,7 @@ impl AutomationSession {
         let mut best: Option<(i32, i32, i32, IUIAutomationElement)> = None;
         let window_height = self.window_rect.bottom - self.window_rect.top;
         let window_width = self.window_rect.right - self.window_rect.left;
+        let mut inspected = 0;
 
         for element in self.descendants()? {
             let control_type =
@@ -872,6 +1238,19 @@ impl AutomationSession {
                 0
             };
             let score = rect.bottom + name_bonus;
+            if inspected < 24 {
+                debug_log(&format!(
+                    "input_candidate rect=({}, {}, {}, {}) width={} score={} blob={}",
+                    rect.left,
+                    rect.top,
+                    rect.right,
+                    rect.bottom,
+                    width,
+                    score,
+                    preview_text(&blob, 160)
+                ));
+                inspected += 1;
+            }
             let candidate = (score, width, rect.top, element);
 
             if best
@@ -882,6 +1261,7 @@ impl AutomationSession {
             }
         }
 
+        debug_log(&format!("input_target_found={}", best.is_some()));
         Ok(best.map(|(_, _, _, element)| element))
     }
 
@@ -889,9 +1269,10 @@ impl AutomationSession {
         let mut candidates: Vec<(i32, i32, IUIAutomationElement)> = Vec::new();
         let window_width = self.window_rect.right - self.window_rect.left;
         let window_height = self.window_rect.bottom - self.window_rect.top;
-        let left_bound = self.window_rect.left + (window_width / 10);
-        let right_bound = self.window_rect.left + (window_width / 3);
+        let left_bound = self.window_rect.left;
+        let right_bound = self.window_rect.left + (window_width / 2);
         let top_bound = self.window_rect.top + (window_height / 6);
+        let mut inspected = 0;
 
         for element in self.descendants()? {
             let control_type =
@@ -909,13 +1290,13 @@ impl AutomationSession {
                 Some(rect) => rect,
                 None => continue,
             };
-            if rect.top > top_bound || rect.left < left_bound || rect.right > right_bound {
+            if rect.top > top_bound || rect.left < left_bound || rect.left > right_bound {
                 continue;
             }
 
             let width = rect.right - rect.left;
             let height = rect.bottom - rect.top;
-            if width < 16 || height < 16 || width > 96 || height > 96 {
+            if width < 16 || height < 16 || width > 160 || height > 96 {
                 continue;
             }
 
@@ -925,11 +1306,26 @@ impl AutomationSession {
             } else {
                 0
             };
-            let score = label_bonus + rect.left;
+            let score = label_bonus - rect.left;
+            if inspected < 24 {
+                debug_log(&format!(
+                    "new_chat_candidate rect=({}, {}, {}, {}) width={} height={} score={} blob={}",
+                    rect.left,
+                    rect.top,
+                    rect.right,
+                    rect.bottom,
+                    width,
+                    height,
+                    score,
+                    preview_text(&blob, 160)
+                ));
+                inspected += 1;
+            }
             candidates.push((score, rect.left, element));
         }
 
         candidates.sort_by(|left, right| left.0.cmp(&right.0).then(left.1.cmp(&right.1)));
+        debug_log(&format!("new_chat_target_found={}", !candidates.is_empty()));
         Ok(candidates.pop().map(|(_, _, element)| element))
     }
 
@@ -1228,15 +1624,40 @@ fn focus_input_with_uia(hwnd: isize) -> Result<bool, String> {
 }
 
 #[cfg(target_os = "windows")]
-fn click_input_box(hwnd: isize) -> Result<(), String> {
-    if focus_input_with_uia(hwnd)? {
+fn click_input_box(target: DoubaoWindowTarget) -> Result<(), String> {
+    if focus_input_with_uia(target.hwnd)? {
+        debug_log("input_focus_by_uia");
         return Ok(());
     }
 
-    let rect = client_rect_screen(HWND(hwnd as *mut core::ffi::c_void))?;
-    let x = rect.left + ((rect.right - rect.left) as f64 * INPUT_X_RATIO) as i32;
-    let y = rect.bottom - INPUT_Y_OFFSET;
-    click_screen_point(x, y)
+    let rect = client_rect_screen(HWND(target.hwnd as *mut core::ffi::c_void))?;
+    match target.mode {
+        DoubaoWindowMode::MainWindow => {
+            let x = rect.left + ((rect.right - rect.left) as f64 * INPUT_X_RATIO) as i32;
+            let y = rect.bottom - INPUT_Y_OFFSET;
+            debug_log(&format!("input_fallback_main x={} y={}", x, y));
+            click_screen_point(x, y)
+        }
+        DoubaoWindowMode::SmallWindow => {
+            let width = rect.right - rect.left;
+            let height = rect.bottom - rect.top;
+            let mut last_error: Option<String> = None;
+
+            for (x_ratio, y_ratio) in SMALL_WINDOW_INPUT_FALLBACK_POINTS {
+                let x = rect.left + (width as f64 * x_ratio) as i32;
+                let y = rect.top + (height as f64 * y_ratio) as i32;
+                debug_log(&format!("input_fallback_small x={} y={}", x, y));
+                if let Err(error) = click_screen_point(x, y) {
+                    last_error = Some(error);
+                    continue;
+                }
+                thread::sleep(Duration::from_millis(120));
+                return Ok(());
+            }
+
+            Err(last_error.unwrap_or("Failed to focus Doubao small window input".to_string()))
+        }
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -1305,14 +1726,27 @@ fn send_mouse_input(
 
 #[cfg(target_os = "windows")]
 fn paste_shortcut() -> Result<(), String> {
-    send_key_down(VK_CONTROL)?;
-    send_key_press(VIRTUAL_KEY(b'V' as u16))?;
-    send_key_up(VK_CONTROL)
+    send_modified_key(VK_CONTROL, VIRTUAL_KEY(b'V' as u16))
 }
 
 #[cfg(target_os = "windows")]
 fn press_enter() -> Result<(), String> {
     send_key_press(VIRTUAL_KEY(0x0D))
+}
+
+#[cfg(target_os = "windows")]
+fn press_alt_space() -> Result<(), String> {
+    send_modified_key(VK_MENU, VK_SPACE)
+}
+
+#[cfg(target_os = "windows")]
+fn send_modified_key(modifier: VIRTUAL_KEY, key: VIRTUAL_KEY) -> Result<(), String> {
+    send_key_down(modifier)?;
+    let press_result = send_key_press(key);
+    let release_result = send_key_up(modifier);
+
+    press_result?;
+    release_result
 }
 
 #[cfg(target_os = "windows")]
@@ -1362,45 +1796,240 @@ fn send_keyboard_input(key: VIRTUAL_KEY, key_up: bool) -> Result<(), String> {
 
 #[cfg(target_os = "windows")]
 fn find_doubao_window() -> Option<isize> {
+    find_doubao_windows()
+        .into_iter()
+        .find(|candidate| is_main_doubao_title(&candidate.title))
+        .map(|candidate| candidate.hwnd)
+}
+
+#[cfg(target_os = "windows")]
+fn find_doubao_small_window(main_hwnd: isize) -> Option<isize> {
+    let main_process_id = window_process_id(HWND(main_hwnd as *mut core::ffi::c_void))?;
+    let main_rect = window_rect(HWND(main_hwnd as *mut core::ffi::c_void))?;
+    let main_area = rect_area(main_rect);
+
+    find_doubao_windows()
+        .into_iter()
+        .filter(|candidate| candidate.hwnd != main_hwnd)
+        .filter(|candidate| candidate.process_id == main_process_id)
+        .filter(|candidate| rect_area(candidate.rect) > 120_000)
+        .filter(|candidate| rect_area(candidate.rect) < main_area)
+        .min_by_key(|candidate| rect_area(candidate.rect))
+        .map(|candidate| candidate.hwnd)
+}
+
+#[cfg(target_os = "windows")]
+fn find_existing_doubao_small_window() -> Option<isize> {
+    let main_hwnd = find_doubao_window()?;
+    find_doubao_small_window(main_hwnd)
+}
+
+#[cfg(target_os = "windows")]
+fn find_recent_doubao_small_window(
+    baseline_hwnds: &[isize],
+    known_process_id: Option<u32>,
+) -> Option<isize> {
+    if let Some(foreground) = foreground_doubao_small_window(known_process_id) {
+        return Some(foreground);
+    }
+
+    let baseline: std::collections::HashSet<isize> = baseline_hwnds.iter().copied().collect();
+    let mut candidates: Vec<WindowCandidate> = find_doubao_windows()
+        .into_iter()
+        .filter(|candidate| !baseline.contains(&candidate.hwnd))
+        .filter(|candidate| !is_main_doubao_title(&candidate.title))
+        .collect();
+
+    candidates.sort_by_key(|candidate| rect_area(candidate.rect));
+    candidates.first().map(|candidate| candidate.hwnd)
+}
+
+#[cfg(target_os = "windows")]
+fn foreground_doubao_small_window(known_process_id: Option<u32>) -> Option<isize> {
+    let hwnd = unsafe { GetForegroundWindow() };
+    if hwnd.0.is_null() {
+        return None;
+    }
+
+    let process_id = window_process_id(hwnd)?;
+    if let Some(known_process_id) = known_process_id {
+        if process_id != known_process_id {
+            return None;
+        }
+    }
+
+    let title = window_title(hwnd);
+    if is_main_doubao_title(&title) {
+        return None;
+    }
+
+    let rect = window_rect(hwnd)?;
+    if rect_area(rect) < 120_000 {
+        return None;
+    }
+
+    Some(hwnd.0 as isize)
+}
+
+#[cfg(target_os = "windows")]
+fn collect_doubao_window_hwnds() -> Vec<isize> {
+    find_doubao_windows()
+        .into_iter()
+        .map(|candidate| candidate.hwnd)
+        .collect()
+}
+
+#[cfg(target_os = "windows")]
+fn find_doubao_windows() -> Vec<WindowCandidate> {
     unsafe extern "system" fn enum_windows_callback(hwnd: HWND, lparam: LPARAM) -> BOOL {
         if !unsafe { IsWindowVisible(hwnd).as_bool() } {
             return BOOL(1);
         }
 
-        let len = unsafe { GetWindowTextLengthW(hwnd) };
-        if len <= 0 {
+        let Some(rect) = window_rect(hwnd) else {
+            return BOOL(1);
+        };
+        if !rect_has_area(rect) {
             return BOOL(1);
         }
 
-        let mut buffer = vec![0u16; len as usize + 1];
-        let copied = unsafe { GetWindowTextW(hwnd, &mut buffer) };
-        if copied <= 0 {
+        let process_id = match window_process_id(hwnd) {
+            Some(process_id) if process_id != 0 => process_id,
+            _ => return BOOL(1),
+        };
+        let title = window_title(hwnd);
+
+        if title.trim().is_empty() && rect_area(rect) < 120_000 {
             return BOOL(1);
         }
 
-        let title = String::from_utf16_lossy(&buffer[..copied as usize]);
-        if title.trim() == "豆包" {
-            let target = lparam.0 as *mut isize;
-            unsafe { *target = hwnd.0 as isize };
-            return BOOL(0);
+        let target = lparam.0 as *mut Vec<WindowCandidate>;
+        unsafe {
+            (*target).push(WindowCandidate {
+                hwnd: hwnd.0 as isize,
+                title,
+                rect,
+                process_id,
+            });
         }
-
         BOOL(1)
     }
 
-    let mut found = 0isize;
+    let mut windows = Vec::new();
     unsafe {
         let _ = EnumWindows(
             Some(enum_windows_callback),
-            LPARAM((&mut found as *mut isize) as isize),
+            LPARAM((&mut windows as *mut Vec<WindowCandidate>) as isize),
         );
     }
 
-    if found == 0 {
-        None
-    } else {
-        Some(found)
+    let known_process_id = doubao_process_id();
+
+    windows
+        .into_iter()
+        .filter(|candidate: &WindowCandidate| {
+            is_main_doubao_title(&candidate.title)
+                || (known_process_id != 0 && candidate.process_id == known_process_id)
+        })
+        .collect()
+}
+
+#[cfg(target_os = "windows")]
+fn is_main_doubao_title(title: &str) -> bool {
+    let trimmed = title.trim();
+    trimmed == "豆包" || trimmed.starts_with("豆包 -")
+}
+
+#[cfg(target_os = "windows")]
+fn doubao_process_id() -> u32 {
+    find_known_doubao_process_id().unwrap_or(0)
+}
+
+#[cfg(target_os = "windows")]
+fn find_known_doubao_process_id() -> Option<u32> {
+    find_doubao_windows_by_title()
+        .into_iter()
+        .find(|candidate| is_main_doubao_title(&candidate.title))
+        .map(|candidate| candidate.process_id)
+}
+
+#[cfg(target_os = "windows")]
+fn find_doubao_windows_by_title() -> Vec<WindowCandidate> {
+    unsafe extern "system" fn enum_windows_callback(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        if !unsafe { IsWindowVisible(hwnd).as_bool() } {
+            return BOOL(1);
+        }
+
+        let title = window_title(hwnd);
+        if title.trim().is_empty() {
+            return BOOL(1);
+        }
+
+        let Some(rect) = window_rect(hwnd) else {
+            return BOOL(1);
+        };
+        let process_id = match window_process_id(hwnd) {
+            Some(process_id) if process_id != 0 => process_id,
+            _ => return BOOL(1),
+        };
+
+        let target = lparam.0 as *mut Vec<WindowCandidate>;
+        unsafe {
+            (*target).push(WindowCandidate {
+                hwnd: hwnd.0 as isize,
+                title,
+                rect,
+                process_id,
+            });
+        }
+        BOOL(1)
     }
+
+    let mut windows = Vec::new();
+    unsafe {
+        let _ = EnumWindows(
+            Some(enum_windows_callback),
+            LPARAM((&mut windows as *mut Vec<WindowCandidate>) as isize),
+        );
+    }
+    windows
+}
+
+#[cfg(target_os = "windows")]
+fn window_title(hwnd: HWND) -> String {
+    let len = unsafe { GetWindowTextLengthW(hwnd) };
+    if len <= 0 {
+        return String::new();
+    }
+
+    let mut buffer = vec![0u16; len as usize + 1];
+    let copied = unsafe { GetWindowTextW(hwnd, &mut buffer) };
+    if copied <= 0 {
+        return String::new();
+    }
+
+    String::from_utf16_lossy(&buffer[..copied as usize])
+}
+
+#[cfg(target_os = "windows")]
+fn window_process_id(hwnd: HWND) -> Option<u32> {
+    let mut process_id = 0u32;
+    unsafe {
+        let _ = GetWindowThreadProcessId(hwnd, Some(&mut process_id));
+    }
+    (process_id != 0).then_some(process_id)
+}
+
+#[cfg(target_os = "windows")]
+fn window_rect(hwnd: HWND) -> Option<RECT> {
+    let mut rect = RECT::default();
+    unsafe { GetWindowRect(hwnd, &mut rect).ok()? };
+    Some(rect)
+}
+
+#[cfg(target_os = "windows")]
+fn rect_area(rect: RECT) -> i64 {
+    i64::from(rect.right - rect.left) * i64::from(rect.bottom - rect.top)
 }
 
 #[cfg(target_os = "windows")]
@@ -1415,8 +2044,42 @@ fn focus_doubao_window(hwnd: isize) {
     thread::sleep(WINDOW_FOCUS_DELAY);
 }
 
+#[cfg(target_os = "windows")]
+fn focus_window_without_restore(hwnd: isize) -> Result<(), String> {
+    let hwnd = HWND(hwnd as *mut core::ffi::c_void);
+    unsafe { SetForegroundWindow(hwnd) }.ok().map_err(|error| error.to_string())?;
+    thread::sleep(WINDOW_FOCUS_DELAY);
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn ensure_target_foreground(hwnd: isize) -> Result<(), String> {
+    focus_window_without_restore(hwnd)?;
+    let foreground = unsafe { GetForegroundWindow() };
+    if foreground.0 == hwnd as *mut core::ffi::c_void {
+        debug_log(&format!("foreground_ok hwnd={hwnd}"));
+        return Ok(());
+    }
+
+    debug_log(&format!(
+        "foreground_mismatch expected={} actual={}",
+        hwnd, foreground.0 as isize
+    ));
+    Err("Failed to keep Doubao small window in the foreground".to_string())
+}
+
 #[cfg(not(target_os = "windows"))]
 fn focus_doubao_window(_hwnd: isize) {}
+
+#[cfg(not(target_os = "windows"))]
+fn focus_window_without_restore(_hwnd: isize) -> Result<(), String> {
+    Err("Doubao desktop automation is only supported on Windows".to_string())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn ensure_target_foreground(_hwnd: isize) -> Result<(), String> {
+    Err("Doubao desktop automation is only supported on Windows".to_string())
+}
 
 #[cfg(not(target_os = "windows"))]
 fn paste_shortcut() -> Result<(), String> {
@@ -1429,6 +2092,6 @@ fn press_enter() -> Result<(), String> {
 }
 
 #[cfg(not(target_os = "windows"))]
-fn click_input_box(_hwnd: isize) -> Result<(), String> {
+fn click_input_box(_target: DoubaoWindowTarget) -> Result<(), String> {
     Err("Doubao desktop automation is only supported on Windows".to_string())
 }

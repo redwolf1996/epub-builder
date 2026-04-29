@@ -25,6 +25,7 @@ const emit = defineEmits<{
 
 export interface EditorActions {
   insertText: (text: string) => void
+  insertHardBreak: () => void
   wrapSelection: (before: string, after: string) => void
   indentSelection: () => void
   indentAll: () => void
@@ -69,6 +70,10 @@ const insertQuote = () => {
 
 const insertList = () => {
   editorRef.value?.insertText('- ')
+}
+
+const insertHardBreak = () => {
+  editorRef.value?.insertHardBreak()
 }
 
 const insertInlineCode = () => {
@@ -117,6 +122,8 @@ const handleMoreSelect = (key: string) => {
       break
   }
 }
+
+const withShortcut = (label: string, shortcut: string) => `${label} (${shortcut})`
 </script>
 
 <template>
@@ -142,7 +149,7 @@ const handleMoreSelect = (key: string) => {
             <span class="i-carbon-heading text-sm" />
           </NButton>
         </template>
-        {{ t('toolbar.heading') }}
+        {{ withShortcut(t('toolbar.heading'), 'Ctrl+H') }}
       </NTooltip>
       <NTooltip trigger="hover">
         <template #trigger>
@@ -160,6 +167,14 @@ const handleMoreSelect = (key: string) => {
         </template>
         {{ t('toolbar.list') }}
       </NTooltip>
+      <NTooltip trigger="hover">
+        <template #trigger>
+          <NButton quaternary size="tiny" @click="insertHardBreak">
+            <span class="i-carbon-return text-sm" />
+          </NButton>
+        </template>
+        {{ withShortcut(t('toolbar.hardBreak'), 'Alt+Enter') }}
+      </NTooltip>
     </div>
 
     <div class="toolbar-divider" />
@@ -171,7 +186,7 @@ const handleMoreSelect = (key: string) => {
             <span class="i-carbon-text-bold text-sm" />
           </NButton>
         </template>
-        {{ t('toolbar.bold') }}
+        {{ withShortcut(t('toolbar.bold'), 'Ctrl+B') }}
       </NTooltip>
       <NTooltip trigger="hover">
         <template #trigger>
@@ -179,7 +194,7 @@ const handleMoreSelect = (key: string) => {
             <span class="i-carbon-text-italic text-sm" />
           </NButton>
         </template>
-        {{ t('toolbar.italic') }}
+        {{ withShortcut(t('toolbar.italic'), 'Ctrl+I') }}
       </NTooltip>
     </div>
 
@@ -250,7 +265,7 @@ const handleMoreSelect = (key: string) => {
             <span class="i-carbon-search text-sm" />
           </NButton>
         </template>
-        {{ t('toolbar.search') }}
+        {{ withShortcut(t('toolbar.search'), 'Ctrl+F') }}
       </NTooltip>
       <NTooltip v-if="!props.compact" trigger="hover">
         <template #trigger>

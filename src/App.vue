@@ -16,6 +16,11 @@
   const bookStore = useBookStore()
   const { t, locale } = useI18n()
   const MENU_VISIBLE_KEY = 'epub-builder-menu-visible'
+  type NativeMenuHandles = {
+    editMenu: import('@tauri-apps/api/menu').Submenu
+    exportEpubItem: import('@tauri-apps/api/menu').MenuItem
+    toggleScrollSyncItem: import('@tauri-apps/api/menu').MenuItem
+  }
 
   const isHome = computed(() => route.path === '/')
   const isEditor = computed(() => route.path.includes('/editor'))
@@ -46,6 +51,7 @@
   // 原生菜单事件监听 + 动态创建
   let menuUnlisten: (() => void) | null = null
   let menuVisible = true
+  let nativeMenuHandles: NativeMenuHandles | null = null
 
   const getStoredMenuVisible = () => {
     if (!isTauri()) return true
@@ -63,17 +69,19 @@
     try {
       const { Menu, Submenu, MenuItem, PredefinedMenuItem } = await import('@tauri-apps/api/menu')
 
+      const exportEpubItem = await MenuItem.new({ id: 'export_epub', text: t('menu.exportEpub'), accelerator: 'Ctrl+E' })
       const fileMenu = await Submenu.new({
         text: t('menu.file'),
         items: [
           await MenuItem.new({ id: 'new_book', text: t('menu.newBook'), accelerator: 'Ctrl+N' }),
           await PredefinedMenuItem.new({ item: 'Separator' }),
-          await MenuItem.new({ id: 'export_epub', text: t('menu.exportEpub'), accelerator: 'Ctrl+E' }),
+          exportEpubItem,
           await PredefinedMenuItem.new({ item: 'Separator' }),
           await PredefinedMenuItem.new({ item: 'Quit', text: t('menu.quit') }),
         ],
       })
 
+      const findReplaceItem = await MenuItem.new({ id: 'find_replace', text: t('menu.findReplace'), accelerator: 'Ctrl+F' })
       const editMenu = await Submenu.new({
         text: t('menu.edit'),
         items: [
@@ -85,16 +93,17 @@
           await PredefinedMenuItem.new({ item: 'Paste', text: t('menu.paste') }),
           await PredefinedMenuItem.new({ item: 'SelectAll', text: t('menu.selectAll') }),
           await PredefinedMenuItem.new({ item: 'Separator' }),
-          await MenuItem.new({ id: 'find_replace', text: t('menu.findReplace'), accelerator: 'Ctrl+F' }),
+          findReplaceItem,
         ],
       })
 
+      const toggleScrollSyncItem = await MenuItem.new({ id: 'toggle_scroll_sync', text: t('menu.toggleScrollSync') })
       const viewMenu = await Submenu.new({
         text: t('menu.view'),
         items: [
           await MenuItem.new({ id: 'toggle_theme', text: t('menu.toggleTheme') }),
           await MenuItem.new({ id: 'app_fullscreen', text: t('menu.appFullscreen'), accelerator: 'Ctrl+Enter' }),
-          await MenuItem.new({ id: 'toggle_scroll_sync', text: t('menu.toggleScrollSync') }),
+          toggleScrollSyncItem,
         ],
       })
 
@@ -107,7 +116,24 @@
 
       const menu = await Menu.new({ items: [fileMenu, editMenu, viewMenu, helpMenu] })
       await menu.setAsAppMenu()
+      nativeMenuHandles = {
+        editMenu,
+        exportEpubItem,
+        toggleScrollSyncItem,
+      }
+      await syncNativeMenuState()
     } catch (e) { console.error('buildNativeMenu failed', e) }
+  }
+
+  async function syncNativeMenuState() {
+    if (!nativeMenuHandles) return
+
+    const editorOnly = isEditor.value
+    await Promise.all([
+      nativeMenuHandles.editMenu.setEnabled(editorOnly),
+      nativeMenuHandles.exportEpubItem.setEnabled(editorOnly),
+      nativeMenuHandles.toggleScrollSyncItem.setEnabled(editorOnly),
+    ])
   }
 
   async function applyMenuVisibility(visible: boolean) {
@@ -134,7 +160,7 @@
       menuUnlisten = await listen<string>('menu-event', (event) => {
         switch (event.payload) {
           case 'new_book':
-            if (!isHome.value) router.push('/')
+            router.push({ path: '/', query: { create: '1' } })
             break
           case 'export_epub':
             window.dispatchEvent(new CustomEvent('menu-export'))
@@ -175,6 +201,11 @@
       }
     })
   })
+
+  watch(() => route.path, () => {
+    if (!isTauri()) return
+    void syncNativeMenuState()
+  }, { immediate: true })
 
   onBeforeUnmount(() => {
     menuUnlisten?.()

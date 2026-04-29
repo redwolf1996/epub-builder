@@ -1,7 +1,8 @@
 <script setup lang="ts">
   import { onMounted, onBeforeUnmount, watch, shallowRef } from 'vue'
+  import { useI18n } from 'vue-i18n'
   import { compressImage } from '@/utils/image'
-  import { EditorState, RangeSetBuilder } from '@codemirror/state'
+  import { Compartment, EditorState, RangeSetBuilder } from '@codemirror/state'
   import { EditorView, keymap, lineNumbers, highlightActiveLineGutter, highlightActiveLine, drawSelection, rectangularSelection, highlightSpecialChars, ViewPlugin, Decoration, WidgetType, type ViewUpdate, type DecorationSet } from '@codemirror/view'
   import { defaultKeymap, history, historyKeymap, indentWithTab, redo } from '@codemirror/commands'
   import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
@@ -16,8 +17,10 @@
     modelValue: string
   }>()
 
+  const { t, locale } = useI18n()
   const editorRef = shallowRef<EditorView | null>(null)
   const containerRef = shallowRef<HTMLElement | null>(null)
+  const phraseCompartment = new Compartment()
 
   const emit = defineEmits<{
     'update:modelValue': [value: string]
@@ -147,8 +150,84 @@
     },
   })
 
+  const deleteCurrentLine = (view: EditorView) => {
+    const selection = view.state.selection.main
+    const line = view.state.doc.lineAt(selection.head)
+    const from = line.from
+    const to = line.number < view.state.doc.lines ? view.state.doc.line(line.number + 1).from : line.to
+    view.dispatch({
+      changes: { from, to, insert: '' },
+      selection: { anchor: Math.min(from, view.state.doc.length - (to - from)) },
+    })
+    return true
+  }
+
+  const moveCurrentLine = (view: EditorView, direction: 'up' | 'down') => {
+    const selection = view.state.selection.main
+    const line = view.state.doc.lineAt(selection.head)
+
+    if (direction === 'up') {
+      if (line.number === 1) return true
+      const previousLine = view.state.doc.line(line.number - 1)
+      const currentText = line.text
+      const previousText = previousLine.text
+      const hasTrailingNewline = line.to < view.state.doc.length
+      const insert = hasTrailingNewline
+        ? `${currentText}\n${previousText}`
+        : `${currentText}\n${previousText}`
+
+      view.dispatch({
+        changes: { from: previousLine.from, to: line.to, insert },
+        selection: { anchor: previousLine.from + Math.min(selection.head - line.from, currentText.length) },
+      })
+      return true
+    }
+
+    if (line.number === view.state.doc.lines) return true
+    const nextLine = view.state.doc.line(line.number + 1)
+    const currentText = line.text
+    const nextText = nextLine.text
+    const insert = `${nextText}\n${currentText}`
+
+    view.dispatch({
+      changes: { from: line.from, to: nextLine.to, insert },
+      selection: { anchor: nextLine.from + Math.min(selection.head - line.from, currentText.length) },
+    })
+    return true
+  }
+
+  const insertHardBreak = (view: EditorView) => {
+    const { from, to } = view.state.selection.main
+    view.dispatch({
+      changes: { from, to, insert: '  \n' },
+      selection: { anchor: from + 3 },
+    })
+    view.focus()
+    return true
+  }
+
+  const getSearchPhrases = () => ({
+    Find: t('editor.searchPanel.find'),
+    Replace: t('editor.searchPanel.replace'),
+    next: t('editor.searchPanel.next'),
+    previous: t('editor.searchPanel.previous'),
+    all: t('editor.searchPanel.all'),
+    'match case': t('editor.searchPanel.matchCase'),
+    regexp: t('editor.searchPanel.regexp'),
+    'by word': t('editor.searchPanel.byWord'),
+    replace: t('editor.searchPanel.replace'),
+    'replace all': t('editor.searchPanel.replaceAll'),
+    close: t('editor.searchPanel.close'),
+    'current match': t('editor.searchPanel.currentMatch'),
+    'on line': t('editor.searchPanel.onLine'),
+    'Go to line': t('editor.searchPanel.goToLine'),
+    'replaced match on line $': t('editor.searchPanel.replacedMatchOnLine'),
+    'replaced $ matches': t('editor.searchPanel.replacedMatches'),
+  })
+
   function createExtensions() {
     return [
+      phraseCompartment.of(EditorState.phrases.of(getSearchPhrases())),
       lineNumbers(),
       highlightActiveLineGutter(),
       highlightSpecialChars(),
@@ -162,6 +241,10 @@
       closeBrackets(),
       autocompletion(),
       keymap.of([
+        { key: 'Alt-Enter', run: insertHardBreak, preventDefault: true },
+        { key: 'Mod-d', run: deleteCurrentLine, preventDefault: true },
+        { key: 'Alt-ArrowUp', run: (view) => moveCurrentLine(view, 'up'), preventDefault: true },
+        { key: 'Alt-ArrowDown', run: (view) => moveCurrentLine(view, 'down'), preventDefault: true },
         ...closeBracketsKeymap,
         ...defaultKeymap,
         ...searchKeymap,
@@ -253,6 +336,13 @@
     },
   )
 
+  watch(locale, () => {
+    if (!editorRef.value) return
+    editorRef.value.dispatch({
+      effects: phraseCompartment.reconfigure(EditorState.phrases.of(getSearchPhrases())),
+    })
+  })
+
   function isMarkdownLine(text: string): boolean {
     return /^[#>*+\-`|~!\[_]|^\d+[.]|^(\*{2,}|_{2,})/.test(text)
   }
@@ -325,6 +415,10 @@
         selection: { anchor: from + text.length },
       })
       editorRef.value.focus()
+    },
+    insertHardBreak: () => {
+      if (!editorRef.value) return
+      insertHardBreak(editorRef.value)
     },
     wrapSelection: (before: string, after: string) => {
       if (!editorRef.value) return
@@ -432,8 +526,20 @@
     },
     openSearch: () => {
       if (!editorRef.value) return
-      import('@codemirror/search').then(({ openSearchPanel }) => {
-        if (editorRef.value) openSearchPanel(editorRef.value)
+      import('@codemirror/search').then(({ SearchQuery, getSearchQuery, openSearchPanel, setSearchQuery }) => {
+        if (!editorRef.value) return
+        const currentQuery = getSearchQuery(editorRef.value.state)
+        editorRef.value.dispatch({
+          effects: setSearchQuery.of(new SearchQuery({
+            search: currentQuery.search,
+            caseSensitive: currentQuery.caseSensitive,
+            literal: currentQuery.literal,
+            regexp: false,
+            replace: currentQuery.replace,
+            wholeWord: currentQuery.wholeWord,
+          })),
+        })
+        openSearchPanel(editorRef.value)
       })
     },
   })
@@ -470,5 +576,106 @@
     font-size: 0.85em;
     cursor: pointer;
     user-select: none;
+  }
+
+  .cm-editor-container .cm-editor .cm-panels {
+    background: transparent;
+  }
+
+  .cm-editor-container .cm-editor .cm-panel.cm-search {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    padding: 10px 12px;
+    background: color-mix(in srgb, var(--bg-surface) 92%, var(--bg-elevated));
+    color: var(--text-primary);
+    border-bottom: 1px solid var(--border-color);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .cm-editor-container .cm-editor .cm-panel.cm-search [name='close'] {
+    margin-left: auto;
+    min-width: 28px;
+    min-height: 28px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-secondary);
+  }
+
+  .cm-editor-container .cm-editor .cm-panel.cm-search [name='close']:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+
+  .cm-editor-container .cm-editor .cm-panel.cm-search input {
+    min-width: 0;
+    height: 30px;
+    padding: 0 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--bg-base) 55%, var(--bg-surface));
+    color: var(--text-primary);
+    box-shadow: none;
+  }
+
+  .cm-editor-container .cm-editor .cm-panel.cm-search input::placeholder {
+    color: var(--text-muted);
+  }
+
+  .cm-editor-container .cm-editor .cm-panel.cm-search input:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 18%, transparent);
+  }
+
+  .cm-editor-container .cm-editor .cm-panel.cm-search button {
+    height: 30px;
+    padding: 0 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--bg-elevated) 45%, var(--bg-surface));
+    color: var(--text-primary);
+  }
+
+  .cm-editor-container .cm-editor .cm-panel.cm-search button:hover {
+    background: var(--bg-hover);
+    border-color: var(--border-light);
+  }
+
+  .cm-editor-container .cm-editor .cm-panel.cm-search button:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 1px;
+  }
+
+  .cm-editor-container .cm-editor .cm-panel.cm-search label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  .cm-editor-container .cm-editor .cm-panel.cm-search label:has(input[name='re']) {
+    display: none;
+  }
+
+  .cm-editor-container .cm-editor .cm-panel.cm-search input[type='checkbox'] {
+    width: 14px;
+    height: 14px;
+    accent-color: var(--primary);
+  }
+
+  .cm-editor-container .cm-editor .cm-searchMatch {
+    background: color-mix(in srgb, var(--primary) 24%, transparent);
+    border-radius: 2px;
+  }
+
+  .cm-editor-container .cm-editor .cm-searchMatch.cm-searchMatch-selected {
+    background: color-mix(in srgb, var(--accent) 28%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 38%, transparent);
   }
 </style>

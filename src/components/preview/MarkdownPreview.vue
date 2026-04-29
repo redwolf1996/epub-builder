@@ -136,7 +136,8 @@ defineExpose({
 }
 
 [data-theme='dark'] .markdown-preview {
-  background: color-mix(in srgb, var(--bg-surface) 80%, #fff 20%);
+  color: color-mix(in srgb, var(--text-secondary) 88%, var(--text-primary) 12%);
+  background: color-mix(in srgb, var(--bg-base) 58%, var(--bg-surface) 42%);
 }
 
 .markdown-preview h1 {
@@ -193,6 +194,10 @@ defineExpose({
   border-radius: 0 8px 8px 0;
 }
 
+[data-theme='dark'] .markdown-preview blockquote {
+  background: color-mix(in srgb, var(--bg-surface) 86%, var(--bg-elevated) 14%);
+}
+
 .markdown-preview code {
   background: var(--bg-active);
   padding: 0.15em 0.4em;
@@ -211,6 +216,11 @@ defineExpose({
   padding: 1em;
   background: var(--bg-elevated);
   border: 1px solid var(--border-color);
+}
+
+[data-theme='dark'] .markdown-preview pre.hljs {
+  background: color-mix(in srgb, var(--bg-surface) 72%, var(--bg-elevated) 28%);
+  border-color: color-mix(in srgb, var(--border-color) 84%, transparent);
 }
 
 .markdown-preview pre code {
@@ -235,6 +245,10 @@ defineExpose({
 .markdown-preview th {
   background: var(--bg-hover);
   font-weight: 600;
+}
+
+[data-theme='dark'] .markdown-preview th {
+  background: color-mix(in srgb, var(--bg-surface) 84%, var(--bg-elevated) 16%);
 }
 
 .markdown-preview img {

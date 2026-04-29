@@ -120,6 +120,49 @@
     }
   }
 
+  const translateAiOcrMessage = (messageText?: string | null) => {
+    if (!messageText) return ''
+
+    switch (messageText) {
+      case 'Doubao small window is ready. Wait for the reply, copy it in Doubao, and the app will minimize the small window and import the text automatically.':
+      case 'Doubao request was sent in the main window fallback flow. Wait for the reply, copy it in Doubao, and the app will import the text automatically.':
+        return t('editor.aiOcrStatusManual')
+      case 'Doubao OCR cancelled':
+        return t('editor.aiOcrStatusCancelled')
+      default:
+        return messageText
+    }
+  }
+
+  const translateAiOcrError = (reason: string) => {
+    switch (reason) {
+      case 'Unsupported AI OCR provider':
+        return t('editor.aiOcrErrorUnsupportedProvider')
+      case 'Selected file does not exist':
+        return t('editor.aiOcrErrorFileNotFound')
+      case 'AI OCR session not found':
+        return t('editor.aiOcrErrorSessionNotFound')
+      case 'Failed to lock AI OCR session store':
+        return t('editor.aiOcrErrorSessionStore')
+      case 'Clipboard does not contain text yet':
+        return t('editor.aiOcrClipboardEmpty')
+      case 'Clipboard text is empty':
+        return t('editor.aiOcrClipboardEmpty')
+      case 'Clipboard still contains the previous marker':
+        return t('editor.aiOcrClipboardPending')
+      case 'Clipboard text does not look like OCR content yet':
+        return t('editor.aiOcrClipboardPending')
+      case 'Doubao desktop automation is only supported on Windows':
+        return t('editor.aiOcrErrorWindowsOnly')
+      case 'Doubao small window did not appear in time':
+        return t('editor.aiOcrErrorSmallWindowTimeout')
+      case 'Failed to keep Doubao small window in the foreground':
+        return t('editor.aiOcrErrorWindowFocus')
+      default:
+        return reason
+    }
+  }
+
   const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms))
 
   const confirmExportWarnings = (warnings: string[]) => {
@@ -223,7 +266,7 @@
     aiOcrSessionId.value = response.sessionId
     aiOcrStatus.value = response.status
     aiOcrStage.value = response.stage
-    aiOcrStatusMessage.value = response.message || ''
+    aiOcrStatusMessage.value = translateAiOcrMessage(response.message)
   }
 
   const startAiOcrSession = async () => {
@@ -246,9 +289,10 @@
       }
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error)
+      const localizedReason = translateAiOcrError(reason)
       aiOcrStatus.value = 'failed'
-      aiOcrStatusMessage.value = reason
-      message.error(`${t('editor.aiOcrFailed')}: ${reason}`)
+      aiOcrStatusMessage.value = localizedReason
+      message.error(`${t('editor.aiOcrFailed')}: ${localizedReason}`)
     } finally {
       aiOcrProcessing.value = false
     }
@@ -353,6 +397,7 @@
 
     editorActions.value = {
       insertText: (text: string) => cm.insertText(text),
+      insertHardBreak: () => cm.insertHardBreak(),
       wrapSelection: (before: string, after: string) => cm.wrapSelection(before, after),
       indentSelection: () => cm.indentSelection(),
       indentAll: () => cm.indentAll(),

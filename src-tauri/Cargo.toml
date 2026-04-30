@@ -30,6 +30,7 @@ tauri-plugin-single-instance = "2.4.1"
 tauri-plugin-notification = "2.3.3"
 tauri-plugin-clipboard-manager = "2.3.2"
 arboard = "3.6.1"
+image = "0.25"
 
 [profile.dev]
 incremental = false

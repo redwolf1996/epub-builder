@@ -1,6 +1,7 @@
 mod doubao;
 
 use std::process::Command;
+use std::path::Path;
 
 #[tauri::command]
 fn open_devtools(app: tauri::AppHandle) -> Result<(), String> {
@@ -83,6 +84,51 @@ fn cancel_doubao_ocr_session(
 }
 
 #[tauri::command]
+fn merge_images(file_paths: Vec<String>) -> Result<String, String> {
+    if file_paths.is_empty() {
+        return Err("No image files provided".to_string());
+    }
+    if file_paths.len() == 1 {
+        return Ok(file_paths[0].clone());
+    }
+
+    let mut images = Vec::new();
+    for path_str in &file_paths {
+        let path = Path::new(path_str);
+        if !path.exists() {
+            return Err(format!("File not found: {path_str}"));
+        }
+        let img = image::open(path).map_err(|e| format!("Failed to open image {path_str}: {e}"))?;
+        images.push(img.to_rgba8());
+    }
+
+    let max_width = images.iter().map(|img| img.width()).max().unwrap_or(0);
+    let total_height: u32 = images.iter().map(|img| img.height()).sum();
+
+    let mut canvas = image::RgbaImage::new(max_width, total_height);
+    let mut y_offset = 0u32;
+    for img in images {
+        let x_offset = (max_width - img.width()) / 2;
+        image::imageops::overlay(&mut canvas, &img, i64::from(x_offset), i64::from(y_offset));
+        y_offset += img.height();
+    }
+
+    let temp_dir = std::env::temp_dir().join("epub-builder");
+    let _ = std::fs::create_dir_all(&temp_dir);
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|v| v.as_millis())
+        .unwrap_or(0);
+    let output_path = temp_dir.join(format!("merged-{timestamp}.png"));
+
+    canvas
+        .save_with_format(&output_path, image::ImageFormat::Png)
+        .map_err(|e| format!("Failed to save merged image: {e}"))?;
+
+    Ok(output_path.to_string_lossy().to_string())
+}
+
+#[tauri::command]
 async fn toggle_menu(app: tauri::AppHandle, visible: bool) -> Result<bool, String> {
     use tauri::Manager;
     let win = app
@@ -111,6 +157,7 @@ pub fn run() {
             open_external_target,
             start_doubao_ocr_session,
             cancel_doubao_ocr_session,
+            merge_images,
             toggle_menu
         ])
         .setup(|app| {

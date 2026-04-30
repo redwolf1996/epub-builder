@@ -61,7 +61,8 @@
   const showChapterDrawer = ref(false)
   const aiOcrProcessing = ref(false)
   const showAiOcrModal = ref(false)
-  const pendingAiOcrPath = ref<string | null>(null)
+  const pendingAiOcrPaths = ref<string[]>([])
+  const aiOcrMerging = ref(false)
   const aiOcrSessionId = ref<string | null>(null)
   const aiOcrStatus = ref<AiOcrStatus | null>(null)
   const aiOcrStage = ref<AiOcrStage | null>(null)
@@ -224,17 +225,38 @@
     }
 
     const selected = await open({
-      multiple: false,
+      multiple: true,
       filters: [{ name: 'Scans', extensions: ['png', 'jpg', 'jpeg', 'bmp', 'tiff', 'tif', 'pdf'] }],
     })
     if (!selected) return
 
-    pendingAiOcrPath.value = selected as string
+    const paths = Array.isArray(selected) ? selected : [selected]
+    if (paths.length === 0) return
+
+    pendingAiOcrPaths.value = paths as string[]
     aiOcrSessionId.value = null
     aiOcrStatus.value = null
     aiOcrStage.value = null
     aiOcrStatusMessage.value = ''
     showAiOcrModal.value = true
+  }
+
+  const removeAiOcrImage = (index: number) => {
+    pendingAiOcrPaths.value.splice(index, 1)
+    if (pendingAiOcrPaths.value.length === 0) {
+      showAiOcrModal.value = false
+    }
+  }
+
+  const addAiOcrImages = async () => {
+    const selected = await open({
+      multiple: true,
+      filters: [{ name: 'Scans', extensions: ['png', 'jpg', 'jpeg', 'bmp', 'tiff', 'tif', 'pdf'] }],
+    })
+    if (!selected) return
+
+    const paths = Array.isArray(selected) ? selected : [selected]
+    pendingAiOcrPaths.value.push(...(paths as string[]))
   }
 
   const applyAiOcrResult = async (resultText?: string | null) => {
@@ -253,7 +275,7 @@
     await nextTick()
     cmEditorRef.value?.focus()
 
-    pendingAiOcrPath.value = null
+    pendingAiOcrPaths.value = []
     aiOcrSessionId.value = null
     aiOcrStatus.value = 'completed'
     aiOcrStage.value = 'completed'
@@ -270,15 +292,27 @@
   }
 
   const startAiOcrSession = async () => {
-    if (!pendingAiOcrPath.value) return
+    if (pendingAiOcrPaths.value.length === 0) return
 
     aiOcrProcessing.value = true
-    aiOcrStatusMessage.value = t('editor.aiOcrStatusRunning')
+    aiOcrMerging.value = true
+    aiOcrStatusMessage.value = t('editor.aiOcrMerging')
     try {
+      let filePath: string
+      if (pendingAiOcrPaths.value.length === 1) {
+        filePath = pendingAiOcrPaths.value[0]
+      } else {
+        filePath = await invoke<string>('merge_images', {
+          filePaths: pendingAiOcrPaths.value,
+        })
+      }
+      aiOcrMerging.value = false
+      aiOcrStatusMessage.value = t('editor.aiOcrStatusRunning')
+
       const response = await invoke<AiOcrResponse>('start_doubao_ocr_session', {
         request: {
           provider: 'doubao',
-          filePath: pendingAiOcrPath.value,
+          filePath,
         } satisfies AiOcrRequest,
       })
       syncAiOcrResponse(response)
@@ -295,6 +329,7 @@
       message.error(`${t('editor.aiOcrFailed')}: ${localizedReason}`)
     } finally {
       aiOcrProcessing.value = false
+      aiOcrMerging.value = false
     }
   }
 
@@ -305,7 +340,7 @@
       }).catch(() => { })
     }
     showAiOcrModal.value = false
-    pendingAiOcrPath.value = null
+    pendingAiOcrPaths.value = []
     aiOcrSessionId.value = null
     aiOcrStatus.value = 'cancelled'
     aiOcrStage.value = 'cancelled'
@@ -597,8 +632,26 @@
           <NInput :value="t('editor.aiOcrProviderValue')" readonly />
         </div>
         <div class="ai-ocr-field">
-          <span class="ai-ocr-label">{{ t('editor.aiOcrFileLabel') }}</span>
-          <NInput :value="pendingAiOcrPath || ''" readonly />
+          <div class="flex items-center justify-between">
+            <span class="ai-ocr-label">{{ t('editor.aiOcrFileLabel') }}</span>
+            <NButton v-if="!aiOcrProcessing" quaternary size="tiny" type="primary" @click="addAiOcrImages">
+              <span class="i-carbon-add mr-1" />{{ t('editor.aiOcrAddImages') }}
+            </NButton>
+          </div>
+          <div v-if="pendingAiOcrPaths.length > 0" class="ai-ocr-image-list">
+            <div v-for="(path, index) in pendingAiOcrPaths" :key="index" class="ai-ocr-image-item">
+              <span class="ai-ocr-image-name" :title="path">{{ path.split(/[/\\]/).pop() }}</span>
+              <NButton v-if="!aiOcrProcessing" quaternary size="tiny" @click="removeAiOcrImage(index)">
+                <span class="i-carbon-close text-xs" />
+              </NButton>
+            </div>
+          </div>
+          <div v-else class="ai-ocr-image-empty">
+            {{ t('editor.aiOcrNoImages') }}
+          </div>
+        </div>
+        <div v-if="pendingAiOcrPaths.length > 1 && !aiOcrProcessing" class="ai-ocr-merge-hint">
+          {{ t('editor.aiOcrMergeHint') }}
         </div>
         <div class="ai-ocr-field">
           <span class="ai-ocr-label">{{ t('editor.aiOcrStatusLabel') }}</span>
@@ -612,9 +665,10 @@
             v-if="aiOcrStatus !== 'needsManual'"
             type="primary"
             :loading="aiOcrProcessing"
+            :disabled="pendingAiOcrPaths.length === 0"
             @click="startAiOcrSession"
           >
-            {{ t('editor.aiOcrStart') }}
+            {{ aiOcrMerging ? t('editor.aiOcrMerging') : t('editor.aiOcrStart') }}
           </NButton>
         </div>
       </template>
@@ -650,6 +704,55 @@
     color: var(--text-secondary);
     font-size: 12px;
     font-weight: 600;
+  }
+
+  .ai-ocr-image-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 200px;
+    overflow-y: auto;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 4px;
+  }
+
+  .ai-ocr-image-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 4px 6px;
+    border-radius: 3px;
+    transition: background 0.15s;
+  }
+
+  .ai-ocr-image-item:hover {
+    background: var(--bg-hover);
+  }
+
+  .ai-ocr-image-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 13px;
+    color: var(--text-primary);
+  }
+
+  .ai-ocr-image-empty {
+    color: var(--text-muted);
+    font-size: 13px;
+    padding: 8px 0;
+  }
+
+  .ai-ocr-merge-hint {
+    color: var(--text-secondary);
+    font-size: 12px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    background: var(--bg-hover);
   }
 
   .chapter-sidebar,

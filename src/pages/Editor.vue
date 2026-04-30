@@ -119,6 +119,12 @@
     }
   })
   const processingStatusText = computed(() => aiOcrDisplayStatus.value)
+  const isAiOcrPdfPath = (path: string) => path.toLowerCase().endsWith('.pdf')
+
+  const isAiOcrSelectionValid = (paths: string[]) => {
+    if (paths.length <= 1) return true
+    return !paths.some(path => isAiOcrPdfPath(path))
+  }
 
   const formatExportIssue = (issue: string) => {
     switch (issue) {
@@ -186,6 +192,8 @@
         return t('editor.aiOcrErrorSmallWindowTimeout')
       case 'Doubao small window did not become ready for input in time':
         return t('editor.aiOcrErrorSmallWindowNotReady')
+      case 'Doubao small window layout is unsafe for automatic input. Please reopen or resize the small window and try again.':
+        return t('editor.aiOcrErrorSmallWindowUnsafe')
       case 'Failed to keep Doubao small window in the foreground':
         return t('editor.aiOcrErrorWindowFocus')
       default:
@@ -209,6 +217,9 @@
         }
         if (reason.startsWith('Doubao small window did not become ready for input in time')) {
           return t('editor.aiOcrErrorSmallWindowNotReady')
+        }
+        if (reason.startsWith('Doubao small window layout is unsafe for automatic input.')) {
+          return t('editor.aiOcrErrorSmallWindowUnsafe')
         }
         return reason
     }
@@ -306,6 +317,10 @@
 
     const paths = Array.isArray(selected) ? selected : [selected]
     if (paths.length === 0) return
+    if (!isAiOcrSelectionValid(paths as string[])) {
+      message.error(t('editor.aiOcrErrorMergePdfMixed'))
+      return
+    }
 
     pendingAiOcrPaths.value = paths as string[]
     aiOcrSessionId.value = null
@@ -336,6 +351,11 @@
   }
 
   const addAiOcrImages = async () => {
+    if (pendingAiOcrPaths.value.some(path => isAiOcrPdfPath(path))) {
+      message.error(t('editor.aiOcrErrorMergePdfMixed'))
+      return
+    }
+
     const selected = await open({
       multiple: true,
       filters: [{ name: 'Scans', extensions: ['png', 'jpg', 'jpeg', 'bmp', 'tiff', 'tif', 'pdf'] }],
@@ -343,7 +363,13 @@
     if (!selected) return
 
     const paths = Array.isArray(selected) ? selected : [selected]
-    pendingAiOcrPaths.value.push(...(paths as string[]))
+    const nextPaths = [...pendingAiOcrPaths.value, ...(paths as string[])]
+    if (!isAiOcrSelectionValid(nextPaths)) {
+      message.error(t('editor.aiOcrErrorMergePdfMixed'))
+      return
+    }
+
+    pendingAiOcrPaths.value = nextPaths
   }
 
   const applyAiOcrResult = async (resultText?: string | null) => {

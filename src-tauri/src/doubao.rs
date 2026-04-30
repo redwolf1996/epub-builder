@@ -4,10 +4,9 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     env,
-    fs::{File, OpenOptions, create_dir_all},
+    fs::{File, OpenOptions, create_dir_all, metadata},
     io::Write,
     path::Path,
-    process::Command,
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
@@ -20,6 +19,8 @@ use tauri::{AppHandle, Emitter, Manager};
 
 const WINDOW_START_TIMEOUT: Duration = Duration::from_secs(20);
 const FILE_PASTE_DELAY: Duration = Duration::from_millis(1800);
+const FILE_PASTE_DELAY_PER_MB: Duration = Duration::from_millis(700);
+const FILE_PASTE_DELAY_MAX: Duration = Duration::from_millis(12_000);
 const PROMPT_PASTE_DELAY: Duration = Duration::from_millis(300);
 const WINDOW_FOCUS_DELAY: Duration = Duration::from_millis(400);
 const NEW_CHAT_DELAY: Duration = Duration::from_millis(700);
@@ -38,22 +39,28 @@ const OCR_PROMPT: &str = "请返回所传文件的文本，不作其他说明";
 const INPUT_X_RATIO: f64 = 0.5;
 const INPUT_Y_OFFSET: i32 = 132;
 const SMALL_WINDOW_INPUT_FALLBACK_POINTS: [(f64, f64); 4] = [
-    (0.22, 0.91),
-    (0.3, 0.89),
-    (0.38, 0.89),
-    (0.48, 0.89),
+    (0.32, 0.90),
+    (0.5, 0.90),
+    (0.68, 0.90),
+    (0.5, 0.84),
 ];
 const MAIN_WINDOW_NEW_CHAT_FALLBACK_POINTS: [(f64, f64); 3] = [
     (0.19, 0.07),
     (0.168, 0.07),
     (0.205, 0.07),
 ];
-const SMALL_WINDOW_NEW_CHAT_FALLBACK_POINTS: [(f64, f64); 3] = [
-    (0.055, 0.055),
-    (0.08, 0.055),
-    (0.1, 0.06),
+const SMALL_WINDOW_NEW_CHAT_FALLBACK_POINTS: [(f64, f64); 4] = [
+    (0.08, 0.09),
+    (0.12, 0.09),
+    (0.16, 0.09),
+    (0.10, 0.14),
 ];
 const SMALL_WINDOW_TOGGLE_DELAY: Duration = Duration::from_millis(650);
+const SMALL_WINDOW_MIN_WIDTH: i32 = 240;
+const SMALL_WINDOW_BOTTOM_CLEARANCE: i32 = 32;
+const SMALL_WINDOW_REPOSITION_PADDING: i32 = 12;
+const SMALL_WINDOW_LAYOUT_UNSAFE_ERROR: &str =
+    "Doubao small window layout is unsafe for automatic input. Please reopen or resize the small window and try again.";
 #[cfg(target_os = "windows")]
 const INPUT_HINT_LABELS: [&str; 6] = ["输入", "提问", "发送", "message", "prompt", "chat"];
 #[cfg(target_os = "windows")]
@@ -403,7 +410,13 @@ fn submit_ocr_request(target: DoubaoWindowTarget, file_path: &str) -> Result<(),
     set_clipboard_file(file_path)?;
     debug_log("clipboard_file_staged");
     paste_shortcut()?;
-    thread::sleep(FILE_PASTE_DELAY);
+    let file_paste_delay = file_paste_delay_for(file_path);
+    debug_log(&format!(
+        "file_paste_wait_ms={} file={}",
+        file_paste_delay.as_millis(),
+        file_path
+    ));
+    thread::sleep(file_paste_delay);
     debug_log("file_paste_sent");
 
     ensure_target_foreground(target.hwnd)?;
@@ -418,6 +431,25 @@ fn submit_ocr_request(target: DoubaoWindowTarget, file_path: &str) -> Result<(),
     press_enter()?;
     debug_log("enter_sent");
     Ok(())
+}
+
+fn file_paste_delay_for(file_path: &str) -> Duration {
+    let Ok(file_metadata) = metadata(file_path) else {
+        return FILE_PASTE_DELAY;
+    };
+
+    let bytes = file_metadata.len();
+    let mega_bytes = bytes.div_ceil(1024 * 1024);
+    let extra = duration_mul(FILE_PASTE_DELAY_PER_MB, mega_bytes.saturating_sub(1));
+    let delay = FILE_PASTE_DELAY.saturating_add(extra);
+    delay.min(FILE_PASTE_DELAY_MAX)
+}
+
+fn duration_mul(duration: Duration, times: u64) -> Duration {
+    let millis = duration.as_millis();
+    let total = millis.saturating_mul(u128::from(times));
+    let capped = total.min(u128::from(u64::MAX));
+    Duration::from_millis(capped as u64)
 }
 
 fn watch_is_current(watch_id: &AtomicU64, current_watch: u64) -> bool {
@@ -484,10 +516,10 @@ fn start_new_conversation(target: DoubaoWindowTarget) -> Result<(), String> {
             "new_chat_click rect=({}, {}, {}, {})",
             rect.left, rect.top, rect.right, rect.bottom
         ));
-        click_rect_center(rect)?;
+        click_rect_center_in_window(target.hwnd, rect)?;
     } else {
         debug_log("new_chat_uia_not_found_fallback");
-        click_new_chat_fallback(session.window_rect, target.mode)?;
+        click_new_chat_fallback(session.window_rect, target.hwnd, target.mode)?;
     }
     thread::sleep(NEW_CHAT_DELAY);
     Ok(())
@@ -499,7 +531,11 @@ fn start_new_conversation(_target: DoubaoWindowTarget) -> Result<(), String> {
 }
 
 #[cfg(target_os = "windows")]
-fn click_new_chat_fallback(window_rect: RECT, mode: DoubaoWindowMode) -> Result<(), String> {
+fn click_new_chat_fallback(
+    window_rect: RECT,
+    hwnd: isize,
+    mode: DoubaoWindowMode,
+) -> Result<(), String> {
     let width = window_rect.right - window_rect.left;
     let height = window_rect.bottom - window_rect.top;
     let fallback_points = match mode {
@@ -512,7 +548,7 @@ fn click_new_chat_fallback(window_rect: RECT, mode: DoubaoWindowMode) -> Result<
         let x = window_rect.left + (width as f64 * x_ratio) as i32;
         let y = window_rect.top + (height as f64 * y_ratio) as i32;
         debug_log(&format!("new_chat_fallback_click x={} y={} mode={:?}", x, y, mode));
-        if let Err(error) = click_screen_point(x, y) {
+        if let Err(error) = click_point_in_window(hwnd, window_rect, x, y) {
             last_error = Some(error);
             continue;
         }
@@ -962,25 +998,16 @@ fn debug_log_visible_nodes(nodes: &[VisibleTextNode]) {
 }
 
 fn set_clipboard_file(file_path: &str) -> Result<(), String> {
-    let escaped = file_path.replace('\'', "''");
-    Command::new("powershell")
-        .args([
-            "-NoProfile",
-            "-Command",
-            &format!("Set-Clipboard -LiteralPath '{}'", escaped),
-        ])
-        .output()
-        .map_err(|error| format!("Failed to stage file on clipboard: {error}"))
-        .and_then(|output| {
-            if output.status.success() {
-                Ok(())
-            } else {
-                Err(format!(
-                    "Failed to stage file on clipboard: {}",
-                    String::from_utf8_lossy(&output.stderr).trim()
-                ))
-            }
-        })
+    #[cfg(target_os = "windows")]
+    {
+        set_windows_clipboard_file(file_path)
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = file_path;
+        Err("Doubao desktop automation is only supported on Windows".to_string())
+    }
 }
 
 struct ClipboardBackup {
@@ -1007,6 +1034,61 @@ fn restore_clipboard_text(backup: ClipboardBackup) {
 fn read_clipboard_text() -> Option<String> {
     let mut clipboard = arboard::Clipboard::new().ok()?;
     clipboard.get_text().ok()
+}
+
+#[cfg(target_os = "windows")]
+fn set_windows_clipboard_file(file_path: &str) -> Result<(), String> {
+    let mut wide_path: Vec<u16> = file_path.encode_utf16().collect();
+    wide_path.push(0);
+    wide_path.push(0);
+
+    let dropfiles_size = std::mem::size_of::<DROPFILES>();
+    let payload_size = wide_path.len() * std::mem::size_of::<u16>();
+    let total_size = dropfiles_size + payload_size;
+
+    unsafe {
+        let handle = GlobalAlloc(GMEM_MOVEABLE, total_size)
+            .map_err(|error| format!("Failed to allocate file clipboard buffer: {error}"))?;
+
+        let locked = GlobalLock(handle) as *mut u8;
+        if locked.is_null() {
+            let _ = GlobalFree(Some(handle));
+            return Err("Failed to lock file clipboard buffer".to_string());
+        }
+
+        let dropfiles = locked as *mut DROPFILES;
+        (*dropfiles).pFiles = dropfiles_size as u32;
+        (*dropfiles).pt.x = 0;
+        (*dropfiles).pt.y = 0;
+        (*dropfiles).fNC = false.into();
+        (*dropfiles).fWide = true.into();
+
+        std::ptr::copy_nonoverlapping(
+            wide_path.as_ptr() as *const u8,
+            locked.add(dropfiles_size),
+            payload_size,
+        );
+        let _ = GlobalUnlock(handle);
+
+        OpenClipboard(None).map_err(|error| {
+            let _ = GlobalFree(Some(handle));
+            format!("Failed to open the clipboard: {error}")
+        })?;
+
+        let result = (|| -> Result<(), String> {
+            EmptyClipboard().map_err(|error| format!("Failed to clear the clipboard: {error}"))?;
+            SetClipboardData(CF_HDROP.0 as u32, Some(HANDLE(handle.0)))
+                .map_err(|error| format!("Failed to set the file clipboard data: {error}"))?;
+            Ok(())
+        })();
+
+        let _ = CloseClipboard();
+        if result.is_err() {
+            let _ = GlobalFree(Some(handle));
+        }
+
+        result
+    }
 }
 
 fn resolve_requested_exe_path(requested_path: Option<&str>) -> Result<Option<String>, String> {
@@ -1121,6 +1203,7 @@ fn activate_detected_small_window(
         hwnd,
         mode: DoubaoWindowMode::SmallWindow,
     };
+    validate_small_window_geometry(hwnd)?;
     wait_for_small_window_ready(target)?;
     Ok(target)
 }
@@ -1171,7 +1254,10 @@ fn wait_for_small_window_ready(target: DoubaoWindowTarget) -> Result<(), String>
     let start = Instant::now();
 
     while start.elapsed() < WINDOW_START_TIMEOUT {
-        if ensure_target_foreground(target.hwnd).is_ok() && click_input_box(target).is_ok() {
+        if validate_small_window_geometry(target.hwnd).is_ok()
+            && ensure_target_foreground(target.hwnd).is_ok()
+            && click_input_box(target).is_ok()
+        {
             thread::sleep(SMALL_WINDOW_READY_DELAY);
             ensure_target_foreground(target.hwnd)?;
             debug_log(&format!("small_window_ready hwnd={}", target.hwnd));
@@ -1207,6 +1293,7 @@ use windows::{
                 UIA_HyperlinkControlTypeId, UIA_ListItemControlTypeId, UIA_PaneControlTypeId,
                 UIA_TextControlTypeId, UIA_TextPatternId,
             },
+            Shell::DROPFILES,
             Input::KeyboardAndMouse::{
                 SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT,
                 KEYEVENTF_KEYUP, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEINPUT,
@@ -1214,10 +1301,21 @@ use windows::{
             },
             WindowsAndMessaging::{
                 EnumWindows, GetClientRect, GetCursorPos, GetForegroundWindow, GetWindowRect,
-                GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, IsIconic,
-                IsWindowVisible, SetCursorPos, SetForegroundWindow, ShowWindow, SW_RESTORE,
+                GetSystemMetrics, GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId,
+                IsIconic, IsWindowVisible, SetCursorPos, SetForegroundWindow, SetWindowPos,
+                ShowWindow, SM_CYSCREEN, SW_RESTORE, SWP_NOSIZE, SWP_NOZORDER,
             },
         },
+    },
+};
+
+#[cfg(target_os = "windows")]
+use windows::Win32::{
+    Foundation::{GlobalFree, HANDLE},
+    System::{
+        DataExchange::{CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData},
+        Memory::{GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalUnlock},
+        Ole::CF_HDROP,
     },
 };
 
@@ -1695,9 +1793,36 @@ fn rect_intersects(left: RECT, right: RECT) -> bool {
 }
 
 #[cfg(target_os = "windows")]
+fn rect_contains_point(rect: RECT, x: i32, y: i32) -> bool {
+    x >= rect.left && x < rect.right && y >= rect.top && y < rect.bottom
+}
+
+#[cfg(target_os = "windows")]
 fn click_rect_center(rect: RECT) -> Result<(), String> {
     let x = rect.left + ((rect.right - rect.left) / 2);
     let y = rect.top + ((rect.bottom - rect.top) / 2);
+    click_screen_point(x, y)
+}
+
+#[cfg(target_os = "windows")]
+fn click_rect_center_in_window(hwnd: isize, rect: RECT) -> Result<(), String> {
+    let window_rect = client_rect_screen(HWND(hwnd as *mut core::ffi::c_void))?;
+    let x = rect.left + ((rect.right - rect.left) / 2);
+    let y = rect.top + ((rect.bottom - rect.top) / 2);
+    if !rect_contains_point(window_rect, x, y) {
+        debug_log(&format!(
+            "guarded_click_outside_window hwnd={} point=({}, {}) window_rect=({}, {}, {}, {})",
+            hwnd,
+            x,
+            y,
+            window_rect.left,
+            window_rect.top,
+            window_rect.right,
+            window_rect.bottom
+        ));
+        return Err(SMALL_WINDOW_LAYOUT_UNSAFE_ERROR.to_string());
+    }
+    ensure_target_foreground(hwnd)?;
     click_screen_point(x, y)
 }
 
@@ -1711,7 +1836,7 @@ fn focus_input_with_uia(hwnd: isize) -> Result<bool, String> {
     unsafe { input.SetFocus() }.map_err(|error| format!("Failed to focus Doubao input: {error}"))?;
     let rect = unsafe { input.CurrentBoundingRectangle() }
         .map_err(|error| format!("Failed to inspect Doubao input bounds: {error}"))?;
-    click_rect_center(rect)?;
+    click_rect_center_in_window(hwnd, rect)?;
     Ok(true)
 }
 
@@ -1738,8 +1863,8 @@ fn click_input_box(target: DoubaoWindowTarget) -> Result<(), String> {
             for (x_ratio, y_ratio) in SMALL_WINDOW_INPUT_FALLBACK_POINTS {
                 let x = rect.left + (width as f64 * x_ratio) as i32;
                 let y = rect.top + (height as f64 * y_ratio) as i32;
-                debug_log(&format!("input_fallback_small x={} y={}", x, y));
-                if let Err(error) = click_screen_point(x, y) {
+                debug_log(&format!("input_fallback_small_guarded x={} y={}", x, y));
+                if let Err(error) = click_point_in_window(target.hwnd, rect, x, y) {
                     last_error = Some(error);
                     continue;
                 }
@@ -1747,7 +1872,8 @@ fn click_input_box(target: DoubaoWindowTarget) -> Result<(), String> {
                 return Ok(());
             }
 
-            Err(last_error.unwrap_or("Failed to focus Doubao small window input".to_string()))
+            debug_log("input_fallback_small_exhausted");
+            Err(last_error.unwrap_or(SMALL_WINDOW_LAYOUT_UNSAFE_ERROR.to_string()))
         }
     }
 }
@@ -1787,6 +1913,26 @@ fn click_screen_point(x: i32, y: i32) -> Result<(), String> {
         SetCursorPos(original.x, original.y).map_err(|error| error.to_string())?;
     }
     Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn click_point_in_window(hwnd: isize, window_rect: RECT, x: i32, y: i32) -> Result<(), String> {
+    if !rect_contains_point(window_rect, x, y) {
+        debug_log(&format!(
+            "guarded_point_outside_window hwnd={} point=({}, {}) window_rect=({}, {}, {}, {})",
+            hwnd,
+            x,
+            y,
+            window_rect.left,
+            window_rect.top,
+            window_rect.right,
+            window_rect.bottom
+        ));
+        return Err(SMALL_WINDOW_LAYOUT_UNSAFE_ERROR.to_string());
+    }
+
+    ensure_target_foreground(hwnd)?;
+    click_screen_point(x, y)
 }
 
 #[cfg(target_os = "windows")]
@@ -2158,6 +2304,114 @@ fn ensure_target_foreground(hwnd: isize) -> Result<(), String> {
         hwnd, foreground.0 as isize
     ));
     Err("Failed to keep Doubao small window in the foreground".to_string())
+}
+
+#[cfg(target_os = "windows")]
+fn validate_small_window_geometry(hwnd: isize) -> Result<(), String> {
+    let hwnd = HWND(hwnd as *mut core::ffi::c_void);
+
+    for pass in 0..2 {
+        let rect = client_rect_screen(hwnd)
+            .map_err(|_| SMALL_WINDOW_LAYOUT_UNSAFE_ERROR.to_string())?;
+        let outer_rect = window_rect(hwnd)
+            .ok_or_else(|| SMALL_WINDOW_LAYOUT_UNSAFE_ERROR.to_string())?;
+        let width = rect.right - rect.left;
+        let height = rect.bottom - rect.top;
+        let screen_height = unsafe { GetSystemMetrics(SM_CYSCREEN) };
+        let bottom_gap = screen_height - rect.bottom;
+        let mut reasons: Vec<&str> = Vec::new();
+
+        if width < SMALL_WINDOW_MIN_WIDTH {
+            reasons.push("width_too_small");
+        }
+        if height <= 0 {
+            reasons.push("height_invalid");
+        }
+        if rect.left < 0 {
+            reasons.push("left_out_of_bounds");
+        }
+        if rect.top < 0 {
+            reasons.push("top_out_of_bounds");
+        }
+        if bottom_gap < SMALL_WINDOW_BOTTOM_CLEARANCE {
+            reasons.push("too_close_to_taskbar");
+        }
+
+        let unsafe_layout = !reasons.is_empty();
+        let reason_text = if reasons.is_empty() {
+            "ok".to_string()
+        } else {
+            reasons.join(",")
+        };
+
+        debug_log(&format!(
+            "small_window_geometry hwnd={} pass={} client_rect=({}, {}, {}, {}) outer_rect=({}, {}, {}, {}) size={}x{} screen_height={} bottom_gap={} unsafe={} reasons={}",
+            hwnd.0 as isize,
+            pass + 1,
+            rect.left,
+            rect.top,
+            rect.right,
+            rect.bottom,
+            outer_rect.left,
+            outer_rect.top,
+            outer_rect.right,
+            outer_rect.bottom,
+            width,
+            height,
+            screen_height,
+            bottom_gap,
+            unsafe_layout,
+            reason_text
+        ));
+
+        if !unsafe_layout {
+            return Ok(());
+        }
+
+        if pass == 0 && reasons.len() == 1 && reasons[0] == "too_close_to_taskbar" {
+            if try_reposition_small_window_up(hwnd, bottom_gap, outer_rect).is_ok() {
+                thread::sleep(Duration::from_millis(180));
+                continue;
+            }
+        }
+
+        return Err(SMALL_WINDOW_LAYOUT_UNSAFE_ERROR.to_string());
+    }
+
+    Err(SMALL_WINDOW_LAYOUT_UNSAFE_ERROR.to_string())
+}
+
+#[cfg(target_os = "windows")]
+fn try_reposition_small_window_up(hwnd: HWND, bottom_gap: i32, outer_rect: RECT) -> Result<(), String> {
+    let needed_shift = SMALL_WINDOW_BOTTOM_CLEARANCE - bottom_gap + SMALL_WINDOW_REPOSITION_PADDING;
+    if needed_shift <= 0 {
+        return Ok(());
+    }
+
+    let target_y = (outer_rect.top - needed_shift).max(0);
+    debug_log(&format!(
+        "small_window_reposition hwnd={} from_top={} from_bottom={} shift={} target_y={}",
+        hwnd.0 as isize,
+        outer_rect.top,
+        outer_rect.bottom,
+        needed_shift,
+        target_y
+    ));
+
+    unsafe {
+        SetWindowPos(
+            hwnd,
+            None,
+            outer_rect.left,
+            target_y,
+            0,
+            0,
+            SWP_NOSIZE | SWP_NOZORDER,
+        )
+        .map_err(|error| format!("Failed to reposition the Doubao small window: {error}"))?;
+    }
+
+    Ok(())
 }
 
 #[cfg(not(target_os = "windows"))]

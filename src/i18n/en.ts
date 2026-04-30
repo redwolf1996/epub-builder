@@ -91,6 +91,7 @@ export default {
     aiOcrErrorMergeTooLarge: 'The merged image is too large. Reduce the number of images or split OCR into batches.',
     aiOcrErrorSmallWindowTimeout: 'Timed out while waiting for the Doubao small window to appear.',
     aiOcrErrorSmallWindowNotReady: 'The Doubao small window appeared, but its input area did not become ready in time.',
+    aiOcrErrorSmallWindowUnsafe: 'The Doubao small window layout is not safe for automatic input. Reopen or resize the small window and try again.',
     aiOcrErrorWindowFocus: 'Failed to keep the Doubao small window focused.',
     aiOcrAddImages: 'Add Images',
     aiOcrNoImages: 'No images selected',

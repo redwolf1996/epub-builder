@@ -91,6 +91,7 @@ export default {
     aiOcrErrorMergeTooLarge: '合并后的图片过大，请减少图片数量或分批识别。',
     aiOcrErrorSmallWindowTimeout: '等待豆包小窗出现超时。',
     aiOcrErrorSmallWindowNotReady: '豆包小窗已出现，但输入区域未及时就绪。',
+    aiOcrErrorSmallWindowUnsafe: '豆包小窗当前布局不适合自动操作。请重新打开或调大小窗后重试。',
     aiOcrErrorWindowFocus: '无法让豆包小窗保持前台焦点。',
     aiOcrAddImages: '添加图片',
     aiOcrNoImages: '尚未选择图片',

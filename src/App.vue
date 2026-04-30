@@ -160,7 +160,7 @@
       menuUnlisten = await listen<string>('menu-event', (event) => {
         switch (event.payload) {
           case 'new_book':
-            router.push({ path: '/', query: { create: '1' } })
+            navigateToCreateBook()
             break
           case 'export_epub':
             window.dispatchEvent(new CustomEvent('menu-export'))
@@ -327,8 +327,21 @@
     window.removeEventListener('menu-about', handleAbout)
   })
 
-  const handleCreateBook = () => {
+  const openCreateBookModal = () => {
+    window.dispatchEvent(new CustomEvent('home-create-book'))
+  }
+
+  const navigateToCreateBook = () => {
+    if (route.path === '/') {
+      openCreateBookModal()
+      return
+    }
+
     router.push({ path: '/', query: { create: '1' } })
+  }
+
+  const handleCreateBook = () => {
+    navigateToCreateBook()
   }
 
   const handleBackToShelf = () => {

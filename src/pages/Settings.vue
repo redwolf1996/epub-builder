@@ -33,6 +33,13 @@ const isDragOver = ref(false)
 const isCompressing = ref(false)
 let lastSaveTask: Promise<void> | null = null
 
+const consumeNewBookQuery = () => {
+  if (route.query.new !== '1') return
+
+  isNewBook.value = true
+  router.replace({ path: `/settings/${bookId}`, query: {} })
+}
+
 onMounted(async () => {
   const book = await bookStore.getBook(bookId)
   if (book) {
@@ -42,7 +49,13 @@ onMounted(async () => {
       dateTimestamp.value = new Date(meta.value.publishDate).getTime()
     }
   }
-  isNewBook.value = route.query.new === '1'
+  consumeNewBookQuery()
+})
+
+watch(() => route.query.new, (val) => {
+  if (val === '1') {
+    consumeNewBookQuery()
+  }
 })
 
 // --- 自动保存 ---

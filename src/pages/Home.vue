@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
@@ -68,18 +68,35 @@ const refreshBookList = async () => {
   await bookStore.initBookList()
 }
 
+const resetCreateBookDraft = () => {
+  newBookTitle.value = ''
+}
+
+const openCreateBookModal = () => {
+  resetCreateBookDraft()
+  showModal.value = true
+}
+
+const consumeCreateBookQuery = () => {
+  if (route.query.create !== '1') return
+
+  openCreateBookModal()
+  router.replace({ path: '/', query: {} })
+}
+
 onMounted(async () => {
   await refreshBookList()
+  window.addEventListener('home-create-book', openCreateBookModal)
+  consumeCreateBookQuery()
+})
 
-  if (route.query.create === '1') {
-    showModal.value = true
-  }
+onBeforeUnmount(() => {
+  window.removeEventListener('home-create-book', openCreateBookModal)
 })
 
 watch(() => route.query.create, (val) => {
   if (val === '1') {
-    showModal.value = true
-    router.replace({ path: '/', query: {} })
+    consumeCreateBookQuery()
   }
 })
 

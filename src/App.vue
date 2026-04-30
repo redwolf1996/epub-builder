@@ -327,17 +327,11 @@
     window.removeEventListener('menu-about', handleAbout)
   })
 
-  const openCreateBookModal = () => {
-    window.dispatchEvent(new CustomEvent('home-create-book'))
-  }
-
   const navigateToCreateBook = () => {
-    if (route.path === '/') {
-      openCreateBookModal()
-      return
-    }
-
-    router.push({ path: '/', query: { create: '1' } })
+    router.push({
+      path: '/',
+      query: { create: String(Date.now()) },
+    })
   }
 
   const handleCreateBook = () => {

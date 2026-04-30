@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
+    env,
     fs::{File, OpenOptions, create_dir_all},
     io::Write,
     path::Path,
@@ -22,13 +23,16 @@ const FILE_PASTE_DELAY: Duration = Duration::from_millis(1800);
 const PROMPT_PASTE_DELAY: Duration = Duration::from_millis(300);
 const WINDOW_FOCUS_DELAY: Duration = Duration::from_millis(400);
 const NEW_CHAT_DELAY: Duration = Duration::from_millis(700);
+const SMALL_WINDOW_READY_DELAY: Duration = Duration::from_millis(900);
 const CLIPBOARD_WATCH_INTERVAL: Duration = Duration::from_millis(900);
 const CLIPBOARD_WATCH_TIMEOUT: Duration = Duration::from_secs(600);
 const REPLY_POLL_INTERVAL: Duration = Duration::from_millis(1800);
 const REPLY_READY_TIMEOUT: Duration = Duration::from_secs(600);
-const DOUBAO_EXE_PATH: &str = r"C:\Users\Administrator\AppData\Local\Doubao\Application\app\Doubao.exe";
-const DOUBAO_EXE_FALLBACK_PATH: &str =
-    r"C:\Users\Administrator\AppData\Local\Doubao\Application\Doubao.exe";
+const SMALL_WINDOW_TOGGLE_ATTEMPTS: usize = 3;
+const DOUBAO_EXE_RELATIVE_PATHS: [&str; 2] = [
+    r"Doubao\Application\app\Doubao.exe",
+    r"Doubao\Application\Doubao.exe",
+];
 const OCR_PROMPT: &str = "请返回所传文件的文本，不作其他说明";
 
 const INPUT_X_RATIO: f64 = 0.5;
@@ -127,6 +131,7 @@ pub struct DoubaoClipboardImportedEvent {
 pub struct DoubaoOcrRequest {
     pub provider: String,
     pub file_path: String,
+    pub doubao_exe_path: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -138,6 +143,25 @@ pub struct DoubaoOcrResponse {
     pub stage: String,
     pub message: Option<String>,
     pub result_text: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DoubaoExecutableCheckRequest {
+    pub doubao_exe_path: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DoubaoExecutableCheckResponse {
+    pub resolved_path: String,
+    pub source: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DoubaoRunningCheckResponse {
+    pub running: bool,
 }
 
 impl DoubaoAutomationState {
@@ -180,16 +204,7 @@ pub fn start_session(
 
     debug_log(&format!("start_session file={}", request.file_path));
 
-    let target = match ensure_doubao_small_window() {
-        Ok(target) => target,
-        Err(error) => {
-            debug_log(&format!("small_window_unavailable fallback_to_main reason={error}"));
-            DoubaoWindowTarget {
-                hwnd: ensure_doubao_window()?,
-                mode: DoubaoWindowMode::MainWindow,
-            }
-        }
-    };
+    let target = ensure_doubao_small_window(request.doubao_exe_path.as_deref())?;
     debug_capture_window_snapshot(target.hwnd, "target-detected");
     start_new_conversation(target)?;
     debug_capture_window_snapshot(target.hwnd, "after-new-conversation");
@@ -209,14 +224,10 @@ pub fn start_session(
         provider: request.provider.clone(),
         status: "needsManual".to_string(),
         stage: "manualTakeover".to_string(),
-        message: Some(match target.mode {
-            DoubaoWindowMode::SmallWindow =>
-                "Doubao small window is ready. Wait for the reply, copy it in Doubao, and the app will minimize the small window and import the text automatically."
-                    .to_string(),
-            DoubaoWindowMode::MainWindow =>
-                "Doubao request was sent in the main window fallback flow. Wait for the reply, copy it in Doubao, and the app will import the text automatically."
-                    .to_string(),
-        }),
+        message: Some(
+            "Doubao small window is ready. Wait for the reply, copy it in Doubao, and the app will minimize the small window and import the text automatically."
+                .to_string(),
+        ),
         result_text: None,
         clipboard_marker: Some(marker.clone()),
     };
@@ -244,6 +255,40 @@ pub fn cancel_session(
     session.message = Some("Doubao OCR cancelled".to_string());
     state.save(session.clone())?;
     Ok(to_response(session))
+}
+
+pub fn check_executable(
+    request: &DoubaoExecutableCheckRequest,
+) -> Result<DoubaoExecutableCheckResponse, String> {
+    if let Some(requested_path) = resolve_requested_exe_path(request.doubao_exe_path.as_deref())? {
+        return Ok(DoubaoExecutableCheckResponse {
+            resolved_path: requested_path,
+            source: "manual".to_string(),
+        });
+    }
+
+    if let Some(auto_path) = available_exe_paths().into_iter().next() {
+        return Ok(DoubaoExecutableCheckResponse {
+            resolved_path: auto_path,
+            source: "auto".to_string(),
+        });
+    }
+
+    let local_app_data = env::var("LOCALAPPDATA")
+        .unwrap_or_else(|_| "%LOCALAPPDATA%".to_string());
+    Err(format!(
+        "Doubao executable was not found automatically. Please install Doubao desktop or configure the executable path manually. Tried common paths under {}\\{} and {}\\{}",
+        local_app_data,
+        DOUBAO_EXE_RELATIVE_PATHS[0],
+        local_app_data,
+        DOUBAO_EXE_RELATIVE_PATHS[1]
+    ))
+}
+
+pub fn check_running() -> DoubaoRunningCheckResponse {
+    DoubaoRunningCheckResponse {
+        running: find_doubao_window().is_some(),
+    }
 }
 
 fn to_response(session: DoubaoSession) -> DoubaoOcrResponse {
@@ -964,15 +1009,40 @@ fn read_clipboard_text() -> Option<String> {
     clipboard.get_text().ok()
 }
 
-fn available_exe_paths() -> Vec<&'static str> {
-    [DOUBAO_EXE_PATH, DOUBAO_EXE_FALLBACK_PATH]
-        .into_iter()
-        .filter(|path| Path::new(path).exists())
-        .collect()
+fn resolve_requested_exe_path(requested_path: Option<&str>) -> Result<Option<String>, String> {
+    let Some(path) = requested_path.map(str::trim).filter(|path| !path.is_empty()) else {
+        return Ok(None);
+    };
+
+    let candidate = Path::new(path);
+    if !candidate.exists() {
+        return Err("Configured Doubao executable path does not exist".to_string());
+    }
+
+    Ok(Some(path.to_string()))
+}
+
+fn available_exe_paths() -> Vec<String> {
+    let mut paths = Vec::new();
+
+    if let Ok(local_app_data) = env::var("LOCALAPPDATA") {
+        for relative_path in DOUBAO_EXE_RELATIVE_PATHS {
+            let candidate = Path::new(&local_app_data).join(relative_path);
+            if candidate.exists() {
+                paths.push(candidate.to_string_lossy().into_owned());
+            }
+        }
+    }
+
+    paths
+}
+
+fn manual_launch_required_error() -> String {
+    "Doubao desktop must already be running for AI OCR. Please launch Doubao desktop manually and try again.".to_string()
 }
 
 #[cfg(target_os = "windows")]
-fn ensure_doubao_small_window() -> Result<DoubaoWindowTarget, String> {
+fn ensure_doubao_small_window(_requested_exe_path: Option<&str>) -> Result<DoubaoWindowTarget, String> {
     debug_log("ensure_doubao_small_window begin");
     if let Some(hwnd) = find_existing_doubao_small_window() {
         debug_log(&format!("existing_small_window hwnd={hwnd}"));
@@ -982,82 +1052,36 @@ fn ensure_doubao_small_window() -> Result<DoubaoWindowTarget, String> {
         });
     }
 
-    let existing_main_hwnd = find_doubao_window();
-    let main_hwnd = match existing_main_hwnd {
+    let main_hwnd = match find_doubao_window() {
         Some(hwnd) => hwnd,
-        None => ensure_doubao_window()?,
+        None => return Err(manual_launch_required_error()),
     };
     debug_log(&format!("main_hwnd_for_small_window={main_hwnd}"));
     let known_process_id = window_process_id(HWND(main_hwnd as *mut core::ffi::c_void));
-    let baseline_hwnds = collect_doubao_window_hwnds();
-    debug_log(&format!("baseline_hwnds={:?}", baseline_hwnds));
 
-    toggle_small_window()?;
-    let start = Instant::now();
-    while start.elapsed() < WINDOW_START_TIMEOUT {
-        if let Some(hwnd) = find_recent_doubao_small_window(&baseline_hwnds, known_process_id) {
-            debug_log(&format!("recent_small_window hwnd={hwnd}"));
-            return Ok(DoubaoWindowTarget {
-                hwnd,
-                mode: DoubaoWindowMode::SmallWindow,
-            });
+    for attempt in 0..SMALL_WINDOW_TOGGLE_ATTEMPTS {
+        let baseline_hwnds = collect_doubao_window_hwnds();
+        debug_log(&format!(
+            "baseline_hwnds_attempt_{}={:?}",
+            attempt + 1,
+            baseline_hwnds
+        ));
+        debug_log(&format!("small_window_activation attempt={} strategy=background_first", attempt + 1));
+        if try_activate_small_window(main_hwnd, &baseline_hwnds, known_process_id, false)?.is_some() {
+            return activate_detected_small_window(main_hwnd, &baseline_hwnds, known_process_id);
         }
-        if let Some(hwnd) = find_doubao_small_window(main_hwnd) {
-            debug_log(&format!("derived_small_window hwnd={hwnd}"));
-            return Ok(DoubaoWindowTarget {
-                hwnd,
-                mode: DoubaoWindowMode::SmallWindow,
-            });
+
+        debug_log(&format!("small_window_activation attempt={} strategy=foreground_fallback", attempt + 1));
+        if try_activate_small_window(main_hwnd, &baseline_hwnds, known_process_id, true)?.is_some() {
+            return activate_detected_small_window(main_hwnd, &baseline_hwnds, known_process_id);
         }
-        thread::sleep(Duration::from_millis(250));
     }
 
     Err("Doubao small window did not appear in time".to_string())
 }
 
 #[cfg(not(target_os = "windows"))]
-fn ensure_doubao_small_window() -> Result<DoubaoWindowTarget, String> {
-    Err("Doubao desktop automation is only supported on Windows".to_string())
-}
-
-#[cfg(target_os = "windows")]
-fn ensure_doubao_window() -> Result<isize, String> {
-    if let Some(hwnd) = find_doubao_window() {
-        debug_log(&format!("reuse_main_window hwnd={hwnd}"));
-        return Ok(hwnd);
-    }
-
-    let mut attempts = Vec::new();
-
-    for exe_path in available_exe_paths() {
-        match Command::new(exe_path).spawn() {
-            Ok(_) => {
-                let start = Instant::now();
-                while start.elapsed() < WINDOW_START_TIMEOUT {
-                    if let Some(hwnd) = find_doubao_window() {
-                        return Ok(hwnd);
-                    }
-                    thread::sleep(Duration::from_millis(500));
-                }
-                attempts.push(format!(
-                    "{exe_path}: window did not appear within {}s",
-                    WINDOW_START_TIMEOUT.as_secs()
-                ));
-            }
-            Err(error) => {
-                attempts.push(format!("{exe_path}: failed to start: {error}"));
-            }
-        }
-    }
-
-    Err(format!(
-        "Doubao window did not become ready in time. {}",
-        attempts.join(" | ")
-    ))
-}
-
-#[cfg(not(target_os = "windows"))]
-fn ensure_doubao_window() -> Result<isize, String> {
+fn ensure_doubao_small_window(_requested_exe_path: Option<&str>) -> Result<DoubaoWindowTarget, String> {
     Err("Doubao desktop automation is only supported on Windows".to_string())
 }
 
@@ -1081,6 +1105,89 @@ fn maybe_minimize_small_window(target: DoubaoWindowTarget) {
 
 #[cfg(not(target_os = "windows"))]
 fn maybe_minimize_small_window(_target: DoubaoWindowTarget) {}
+
+#[cfg(target_os = "windows")]
+fn activate_detected_small_window(
+    main_hwnd: isize,
+    baseline_hwnds: &[isize],
+    known_process_id: Option<u32>,
+) -> Result<DoubaoWindowTarget, String> {
+    let hwnd = find_recent_doubao_small_window(baseline_hwnds, known_process_id)
+        .or_else(|| find_doubao_small_window(main_hwnd))
+        .ok_or_else(|| "Doubao small window did not appear in time".to_string())?;
+
+    debug_log(&format!("small_window_detected hwnd={hwnd}"));
+    let target = DoubaoWindowTarget {
+        hwnd,
+        mode: DoubaoWindowMode::SmallWindow,
+    };
+    wait_for_small_window_ready(target)?;
+    Ok(target)
+}
+
+#[cfg(target_os = "windows")]
+fn try_activate_small_window(
+    main_hwnd: isize,
+    baseline_hwnds: &[isize],
+    known_process_id: Option<u32>,
+    restore_main_window: bool,
+) -> Result<Option<isize>, String> {
+    if restore_main_window {
+        focus_doubao_window(main_hwnd);
+    } else if let Err(error) = focus_window_without_restore(main_hwnd) {
+        debug_log(&format!("background_first_focus_failed error={error}"));
+    }
+
+    toggle_small_window()?;
+    wait_for_detected_small_window(main_hwnd, baseline_hwnds, known_process_id)
+}
+
+#[cfg(target_os = "windows")]
+fn wait_for_detected_small_window(
+    main_hwnd: isize,
+    baseline_hwnds: &[isize],
+    known_process_id: Option<u32>,
+) -> Result<Option<isize>, String> {
+    let start = Instant::now();
+
+    while start.elapsed() < WINDOW_START_TIMEOUT {
+        if let Some(hwnd) = find_recent_doubao_small_window(baseline_hwnds, known_process_id) {
+            debug_log(&format!("recent_small_window hwnd={hwnd}"));
+            return Ok(Some(hwnd));
+        }
+        if let Some(hwnd) = find_doubao_small_window(main_hwnd) {
+            debug_log(&format!("derived_small_window hwnd={hwnd}"));
+            return Ok(Some(hwnd));
+        }
+
+        thread::sleep(Duration::from_millis(250));
+    }
+
+    Ok(None)
+}
+
+#[cfg(target_os = "windows")]
+fn wait_for_small_window_ready(target: DoubaoWindowTarget) -> Result<(), String> {
+    let start = Instant::now();
+
+    while start.elapsed() < WINDOW_START_TIMEOUT {
+        if ensure_target_foreground(target.hwnd).is_ok() && click_input_box(target).is_ok() {
+            thread::sleep(SMALL_WINDOW_READY_DELAY);
+            ensure_target_foreground(target.hwnd)?;
+            debug_log(&format!("small_window_ready hwnd={}", target.hwnd));
+            return Ok(());
+        }
+
+        thread::sleep(Duration::from_millis(250));
+    }
+
+    Err("Doubao small window did not become ready for input in time".to_string())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn wait_for_small_window_ready(_target: DoubaoWindowTarget) -> Result<(), String> {
+    Err("Doubao desktop automation is only supported on Windows".to_string())
+}
 
 #[cfg(target_os = "windows")]
 use windows::{

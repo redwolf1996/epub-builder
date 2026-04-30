@@ -9,6 +9,7 @@
   import { useBookStore } from '@/stores/book'
   import { useEditorStore } from '@/stores/editor'
   import { useEpub } from '@/composables/useEpub'
+  import { useAiOcrSettings } from '@/composables/useAiOcrSettings'
   import { isTauri } from '@/utils/epub'
   import { useResizable } from '@/composables/useResizable'
   import { useChapterManager } from '@/composables/useChapterManager'
@@ -25,6 +26,7 @@
   interface AiOcrRequest {
     provider: 'doubao'
     filePath: string
+    doubaoExePath?: string | null
   }
 
   interface AiOcrResponse {
@@ -34,6 +36,20 @@
     stage: AiOcrStage
     message?: string | null
     resultText?: string | null
+  }
+
+  interface DoubaoExecutableCheckResponse {
+    resolvedPath: string
+    source: 'manual' | 'auto'
+  }
+
+  interface DoubaoRunningCheckResponse {
+    running: boolean
+  }
+
+  interface MergeImagesCheckResponse {
+    ok: boolean
+    reason?: string | null
   }
 
   interface AiOcrClipboardImportedEvent {
@@ -68,8 +84,10 @@
   const aiOcrStage = ref<AiOcrStage | null>(null)
   const aiOcrStatusMessage = ref('')
   const aiOcrClipboardUnlisten = ref<UnlistenFn | null>(null)
+  const aiOcrMergedTempPath = ref<string | null>(null)
 
   const { sidebarWidth, editorRatio, onSidebarDragStart, onSplitDragStart } = useResizable(splitContainerRef)
+  const { doubaoExePath } = useAiOcrSettings()
   const {
     showAddChapter, newChapterTitle,
     editingChapterId, editingTitle, chapterSearch, collapsedIds,
@@ -126,7 +144,6 @@
 
     switch (messageText) {
       case 'Doubao small window is ready. Wait for the reply, copy it in Doubao, and the app will minimize the small window and import the text automatically.':
-      case 'Doubao request was sent in the main window fallback flow. Wait for the reply, copy it in Doubao, and the app will import the text automatically.':
         return t('editor.aiOcrStatusManual')
       case 'Doubao OCR cancelled':
         return t('editor.aiOcrStatusCancelled')
@@ -155,12 +172,69 @@
         return t('editor.aiOcrClipboardPending')
       case 'Doubao desktop automation is only supported on Windows':
         return t('editor.aiOcrErrorWindowsOnly')
+      case 'Configured Doubao executable path does not exist':
+        return t('editor.aiOcrErrorExecutableConfiguredMissing')
+      case 'Doubao executable was not found automatically. Please install Doubao desktop or configure the executable path manually. Tried common paths under %LOCALAPPDATA%\\Doubao\\Application\\app\\Doubao.exe and %LOCALAPPDATA%\\Doubao\\Application\\Doubao.exe':
+        return t('editor.aiOcrErrorExecutableNotFound')
+      case 'Doubao desktop must already be running for AI OCR. Please launch Doubao desktop manually and try again.':
+        return t('editor.aiOcrErrorManualLaunchRequired')
+      case 'PDF files cannot be merged with images':
+        return t('editor.aiOcrErrorMergePdfMixed')
+      case 'Merged image is too large. Reduce the number of images or split OCR into batches.':
+        return t('editor.aiOcrErrorMergeTooLarge')
       case 'Doubao small window did not appear in time':
         return t('editor.aiOcrErrorSmallWindowTimeout')
+      case 'Doubao small window did not become ready for input in time':
+        return t('editor.aiOcrErrorSmallWindowNotReady')
       case 'Failed to keep Doubao small window in the foreground':
         return t('editor.aiOcrErrorWindowFocus')
       default:
+        if (reason.startsWith('Configured Doubao executable path does not exist')) {
+          return t('editor.aiOcrErrorExecutableConfiguredMissing')
+        }
+        if (reason.startsWith('Doubao executable was not found.')) {
+          return t('editor.aiOcrErrorExecutableNotFound')
+        }
+        if (reason.startsWith('Doubao executable was not found automatically.')) {
+          return t('editor.aiOcrErrorExecutableNotFound')
+        }
+        if (reason.startsWith('Doubao desktop must already be running for AI OCR.')) {
+          return t('editor.aiOcrErrorManualLaunchRequired')
+        }
+        if (reason.startsWith('PDF files cannot be merged with images')) {
+          return t('editor.aiOcrErrorMergePdfMixed')
+        }
+        if (reason.startsWith('Merged image is too large.')) {
+          return t('editor.aiOcrErrorMergeTooLarge')
+        }
+        if (reason.startsWith('Doubao small window did not become ready for input in time')) {
+          return t('editor.aiOcrErrorSmallWindowNotReady')
+        }
         return reason
+    }
+  }
+
+  const resolveDoubaoExecutable = async (options?: { silent?: boolean, autofillOnlyWhenEmpty?: boolean }) => {
+    const silent = options?.silent ?? false
+    const autofillOnlyWhenEmpty = options?.autofillOnlyWhenEmpty ?? false
+    const currentPath = doubaoExePath.value.trim()
+
+    if (autofillOnlyWhenEmpty && currentPath) return
+
+    try {
+      const response = await invoke<DoubaoExecutableCheckResponse>('check_doubao_executable', {
+        request: {
+          doubaoExePath: currentPath || null,
+        },
+      })
+
+      doubaoExePath.value = response.resolvedPath
+    } catch (error) {
+      if (!silent) {
+        const reason = error instanceof Error ? error.message : String(error)
+        const localizedReason = translateAiOcrError(reason)
+        message.error(localizedReason)
+      }
     }
   }
 
@@ -239,12 +313,25 @@
     aiOcrStage.value = null
     aiOcrStatusMessage.value = ''
     showAiOcrModal.value = true
+    await nextTick()
+    if (!doubaoExePath.value.trim()) {
+      await resolveDoubaoExecutable({ silent: true, autofillOnlyWhenEmpty: true })
+    }
   }
 
   const removeAiOcrImage = (index: number) => {
     pendingAiOcrPaths.value.splice(index, 1)
-    if (pendingAiOcrPaths.value.length === 0) {
-      showAiOcrModal.value = false
+  }
+
+  const cleanupAiOcrMergedTempFile = async () => {
+    const tempPath = aiOcrMergedTempPath.value
+    aiOcrMergedTempPath.value = null
+    if (!tempPath) return
+
+    try {
+      await invoke('delete_merged_temp_file', { path: tempPath })
+    } catch {
+      // Ignore cleanup failures to avoid blocking the OCR flow.
     }
   }
 
@@ -295,9 +382,25 @@
     if (pendingAiOcrPaths.value.length === 0) return
 
     aiOcrProcessing.value = true
-    aiOcrMerging.value = true
-    aiOcrStatusMessage.value = t('editor.aiOcrMerging')
+    aiOcrMergedTempPath.value = null
     try {
+      const running = await invoke<DoubaoRunningCheckResponse>('check_doubao_running')
+      if (!running.running) {
+        throw new Error('Doubao desktop must already be running for AI OCR. Please launch Doubao desktop manually and try again.')
+      }
+
+      if (pendingAiOcrPaths.value.length > 1) {
+        const mergeCheck = await invoke<MergeImagesCheckResponse>('check_merge_images', {
+          filePaths: pendingAiOcrPaths.value,
+        })
+        if (!mergeCheck.ok) {
+          throw new Error(mergeCheck.reason || 'Merged image is too large. Reduce the number of images or split OCR into batches.')
+        }
+      }
+
+      aiOcrMerging.value = true
+      aiOcrStatusMessage.value = t('editor.aiOcrMerging')
+
       let filePath: string
       if (pendingAiOcrPaths.value.length === 1) {
         filePath = pendingAiOcrPaths.value[0]
@@ -305,6 +408,7 @@
         filePath = await invoke<string>('merge_images', {
           filePaths: pendingAiOcrPaths.value,
         })
+        aiOcrMergedTempPath.value = filePath
       }
       aiOcrMerging.value = false
       aiOcrStatusMessage.value = t('editor.aiOcrStatusRunning')
@@ -313,6 +417,7 @@
         request: {
           provider: 'doubao',
           filePath,
+          doubaoExePath: doubaoExePath.value.trim() || null,
         } satisfies AiOcrRequest,
       })
       syncAiOcrResponse(response)
@@ -328,6 +433,7 @@
       aiOcrStatusMessage.value = localizedReason
       message.error(`${t('editor.aiOcrFailed')}: ${localizedReason}`)
     } finally {
+      await cleanupAiOcrMergedTempFile()
       aiOcrProcessing.value = false
       aiOcrMerging.value = false
     }
@@ -339,6 +445,7 @@
         sessionId: aiOcrSessionId.value,
       }).catch(() => { })
     }
+    void cleanupAiOcrMergedTempFile()
     showAiOcrModal.value = false
     pendingAiOcrPaths.value = []
     aiOcrSessionId.value = null
@@ -626,15 +733,27 @@
 
     <NModal v-model:show="showAiOcrModal" preset="card" :title="t('editor.aiOcrTitle')" class="max-w-xl">
       <div class="ai-ocr-panel">
-        <p class="ai-ocr-hint">{{ t('editor.aiOcrHint') }}</p>
-        <div class="ai-ocr-field">
-          <span class="ai-ocr-label">{{ t('editor.aiOcrProviderLabel') }}</span>
-          <NInput :value="t('editor.aiOcrProviderValue')" readonly />
+        <div class="ai-ocr-notice" role="note" aria-live="polite">
+          <div class="ai-ocr-notice-title">
+            <span class="i-carbon-warning-alt filled text-base" />
+            <span>{{ t('editor.aiOcrNoticeTitle') }}</span>
+          </div>
+          <ul class="ai-ocr-notice-list">
+            <li>{{ t('editor.aiOcrNoticeInstall') }}</li>
+            <li>{{ t('editor.aiOcrNoticeShortcut') }}</li>
+          </ul>
         </div>
         <div class="ai-ocr-field">
           <div class="flex items-center justify-between">
             <span class="ai-ocr-label">{{ t('editor.aiOcrFileLabel') }}</span>
-            <NButton v-if="!aiOcrProcessing" quaternary size="tiny" type="primary" @click="addAiOcrImages">
+            <NButton
+              v-if="!aiOcrProcessing && pendingAiOcrPaths.length > 0"
+              size="small"
+              type="primary"
+              strong
+              secondary
+              @click="addAiOcrImages"
+            >
               <span class="i-carbon-add mr-1" />{{ t('editor.aiOcrAddImages') }}
             </NButton>
           </div>
@@ -646,9 +765,17 @@
               </NButton>
             </div>
           </div>
-          <div v-else class="ai-ocr-image-empty">
-            {{ t('editor.aiOcrNoImages') }}
-          </div>
+          <button
+            v-else
+            type="button"
+            class="ai-ocr-image-empty"
+            :disabled="aiOcrProcessing"
+            @click="addAiOcrImages"
+          >
+            <span class="i-carbon-add text-lg" />
+            <span class="ai-ocr-image-empty-title">{{ t('editor.aiOcrAddImages') }}</span>
+            <span class="ai-ocr-image-empty-text">{{ t('editor.aiOcrNoImages') }}</span>
+          </button>
         </div>
         <div v-if="pendingAiOcrPaths.length > 1 && !aiOcrProcessing" class="ai-ocr-merge-hint">
           {{ t('editor.aiOcrMergeHint') }}
@@ -687,11 +814,29 @@
     gap: 12px;
   }
 
-  .ai-ocr-hint {
-    margin: 0;
-    color: var(--text-secondary);
+  .ai-ocr-notice {
+    border: 1px solid color-mix(in srgb, #d97706 55%, var(--border-color));
+    border-radius: 6px;
+    background: color-mix(in srgb, #d97706 10%, transparent);
+    padding: 10px 12px;
+  }
+
+  .ai-ocr-notice-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 6px;
+    color: #d97706;
     font-size: 13px;
-    line-height: 1.5;
+    font-weight: 700;
+  }
+
+  .ai-ocr-notice-list {
+    margin: 0;
+    padding-left: 20px;
+    color: var(--text-primary);
+    font-size: 13px;
+    line-height: 1.6;
   }
 
   .ai-ocr-field {
@@ -742,9 +887,41 @@
   }
 
   .ai-ocr-image-empty {
-    color: var(--text-muted);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 132px;
+    border: 1px dashed var(--border-color);
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--bg-hover) 45%, transparent);
+    color: var(--text-secondary);
     font-size: 13px;
-    padding: 8px 0;
+    padding: 16px;
+    transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+  }
+
+  .ai-ocr-image-empty:hover:not(:disabled) {
+    border-color: var(--primary);
+    background: color-mix(in srgb, var(--bg-hover) 75%, transparent);
+    color: var(--text-primary);
+  }
+
+  .ai-ocr-image-empty:disabled {
+    cursor: default;
+    opacity: 0.7;
+  }
+
+  .ai-ocr-image-empty-title {
+    color: var(--text-primary);
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  .ai-ocr-image-empty-text {
+    color: var(--text-secondary);
+    font-size: 12px;
   }
 
   .ai-ocr-merge-hint {

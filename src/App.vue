@@ -299,6 +299,7 @@
   })
 
   const buildTime = __BUILD_TIME__.replace('T', ' ').slice(0, 19)
+  const appVersion = __APP_VERSION__
   const tauriVer = ref('—')
   const webviewVer = ref('—')
 
@@ -397,7 +398,7 @@
           <div class="flex flex-col items-center gap-2 py-2">
             <span class="i-carbon-book text-4xl" style="color: var(--primary)" />
             <span class="text-lg font-bold">EPUB Builder</span>
-            <span class="text-xs" style="color: var(--text-muted)">v0.1.0</span>
+            <span class="text-xs" style="color: var(--text-muted)">v{{ appVersion }}</span>
             <p class="text-center text-sm" style="color: var(--text-secondary)">{{ t('about.desc') }}</p>
             <div class="w-full mt-2 text-xs" style="color: var(--text-muted); line-height: 1.8">
               <div class="flex justify-between"><span>{{ t('about.author') }}</span><span

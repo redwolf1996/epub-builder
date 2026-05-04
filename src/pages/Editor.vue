@@ -215,6 +215,9 @@
         if (reason.startsWith('Merged image is too large.')) {
           return t('editor.aiOcrErrorMergeTooLarge')
         }
+        if (reason.startsWith('Merged image exceeds 20 MB upload limit')) {
+          return t('editor.aiOcrErrorMergeTooLarge')
+        }
         if (reason.startsWith('Doubao small window did not become ready for input in time')) {
           return t('editor.aiOcrErrorSmallWindowNotReady')
         }

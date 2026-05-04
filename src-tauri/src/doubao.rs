@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     env,
-    fs::{File, OpenOptions, create_dir_all, metadata},
+    fs::{File, OpenOptions, create_dir_all},
     io::Write,
     path::Path,
     sync::{
@@ -18,17 +18,18 @@ use std::{
 use tauri::{AppHandle, Emitter, Manager};
 
 const WINDOW_START_TIMEOUT: Duration = Duration::from_secs(20);
-const FILE_PASTE_DELAY: Duration = Duration::from_millis(1800);
-const FILE_PASTE_DELAY_PER_MB: Duration = Duration::from_millis(700);
-const FILE_PASTE_DELAY_MAX: Duration = Duration::from_millis(12_000);
 const PROMPT_PASTE_DELAY: Duration = Duration::from_millis(300);
 const WINDOW_FOCUS_DELAY: Duration = Duration::from_millis(400);
+const FILE_PASTE_INITIAL_DELAY: Duration = Duration::from_millis(900);
+const FILE_PASTE_READY_TIMEOUT: Duration = Duration::from_millis(1500);
+const FILE_PASTE_READY_POLL_INTERVAL: Duration = Duration::from_millis(150);
 const NEW_CHAT_DELAY: Duration = Duration::from_millis(700);
 const SMALL_WINDOW_READY_DELAY: Duration = Duration::from_millis(900);
 const CLIPBOARD_WATCH_INTERVAL: Duration = Duration::from_millis(900);
 const CLIPBOARD_WATCH_TIMEOUT: Duration = Duration::from_secs(600);
 const REPLY_POLL_INTERVAL: Duration = Duration::from_millis(1800);
 const REPLY_READY_TIMEOUT: Duration = Duration::from_secs(600);
+const MAX_DEBUG_CAPTURES: usize = 12;
 const SMALL_WINDOW_TOGGLE_ATTEMPTS: usize = 3;
 const DOUBAO_EXE_RELATIVE_PATHS: [&str; 2] = [
     r"Doubao\Application\app\Doubao.exe",
@@ -63,6 +64,8 @@ const SMALL_WINDOW_LAYOUT_UNSAFE_ERROR: &str =
     "Doubao small window layout is unsafe for automatic input. Please reopen or resize the small window and try again.";
 #[cfg(target_os = "windows")]
 const INPUT_HINT_LABELS: [&str; 6] = ["输入", "提问", "发送", "message", "prompt", "chat"];
+#[cfg(target_os = "windows")]
+const SEND_HINT_LABELS: [&str; 4] = ["发送", "send", "submit", "arrowup"];
 #[cfg(target_os = "windows")]
 const NEW_CHAT_HINT_LABELS: [&str; 10] = [
     "新建",
@@ -410,13 +413,7 @@ fn submit_ocr_request(target: DoubaoWindowTarget, file_path: &str) -> Result<(),
     set_clipboard_file(file_path)?;
     debug_log("clipboard_file_staged");
     paste_shortcut()?;
-    let file_paste_delay = file_paste_delay_for(file_path);
-    debug_log(&format!(
-        "file_paste_wait_ms={} file={}",
-        file_paste_delay.as_millis(),
-        file_path
-    ));
-    thread::sleep(file_paste_delay);
+    wait_for_file_paste_ready(target.hwnd);
     debug_log("file_paste_sent");
 
     ensure_target_foreground(target.hwnd)?;
@@ -433,24 +430,54 @@ fn submit_ocr_request(target: DoubaoWindowTarget, file_path: &str) -> Result<(),
     Ok(())
 }
 
-fn file_paste_delay_for(file_path: &str) -> Duration {
-    let Ok(file_metadata) = metadata(file_path) else {
-        return FILE_PASTE_DELAY;
-    };
-
-    let bytes = file_metadata.len();
-    let mega_bytes = bytes.div_ceil(1024 * 1024);
-    let extra = duration_mul(FILE_PASTE_DELAY_PER_MB, mega_bytes.saturating_sub(1));
-    let delay = FILE_PASTE_DELAY.saturating_add(extra);
-    delay.min(FILE_PASTE_DELAY_MAX)
+#[cfg(target_os = "windows")]
+fn send_button_ready(hwnd: isize) -> Result<bool, String> {
+    let session = AutomationSession::new(hwnd)?;
+    session.send_button_ready()
 }
 
-fn duration_mul(duration: Duration, times: u64) -> Duration {
-    let millis = duration.as_millis();
-    let total = millis.saturating_mul(u128::from(times));
-    let capped = total.min(u128::from(u64::MAX));
-    Duration::from_millis(capped as u64)
+#[cfg(not(target_os = "windows"))]
+fn send_button_ready(_hwnd: isize) -> Result<bool, String> {
+    Err("Doubao desktop automation is only supported on Windows".to_string())
 }
+
+#[cfg(target_os = "windows")]
+fn wait_for_file_paste_ready(hwnd: isize) {
+    thread::sleep(FILE_PASTE_INITIAL_DELAY);
+    let start = Instant::now();
+    let mut probes = 0usize;
+
+    while start.elapsed() < FILE_PASTE_READY_TIMEOUT {
+        probes += 1;
+        match send_button_ready(hwnd) {
+            Ok(true) => {
+                debug_log(&format!(
+                    "file_paste_ready button_ready=true initial_wait_ms={} probe_wait_ms={} probes={}",
+                    FILE_PASTE_INITIAL_DELAY.as_millis(),
+                    start.elapsed().as_millis(),
+                    probes
+                ));
+                return;
+            }
+            Ok(false) => {}
+            Err(error) => {
+                debug_log(&format!("file_paste_ready_probe_failed error={error}"));
+            }
+        }
+
+        thread::sleep(FILE_PASTE_READY_POLL_INTERVAL);
+    }
+
+    debug_log(&format!(
+        "file_paste_ready_timeout initial_wait_ms={} probe_wait_ms={} probes={}",
+        FILE_PASTE_INITIAL_DELAY.as_millis(),
+        FILE_PASTE_READY_TIMEOUT.as_millis(),
+        probes
+    ));
+}
+
+#[cfg(not(target_os = "windows"))]
+fn wait_for_file_paste_ready(_hwnd: isize) {}
 
 fn watch_is_current(watch_id: &AtomicU64, current_watch: u64) -> bool {
     watch_id.load(Ordering::Relaxed) == current_watch
@@ -764,7 +791,7 @@ fn preview_text(text: &str, max_chars: usize) -> String {
     }
 }
 
-fn debug_log(message: &str) {
+pub(crate) fn debug_log(message: &str) {
     let log_dir = std::env::temp_dir().join("epub-builder");
     let _ = create_dir_all(&log_dir);
     let log_path = log_dir.join("doubao-ocr.log");
@@ -802,6 +829,7 @@ fn debug_capture_window_snapshot(hwnd: isize, label: &str) {
 
     let captures_dir = std::env::temp_dir().join("epub-builder").join("captures");
     let _ = create_dir_all(&captures_dir);
+    prune_debug_captures(&captures_dir, MAX_DEBUG_CAPTURES.saturating_sub(1));
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|value| value.as_millis())
@@ -835,6 +863,35 @@ fn debug_capture_window_snapshot(hwnd: isize, label: &str) {
 
 #[cfg(not(target_os = "windows"))]
 fn debug_capture_window_snapshot(_hwnd: isize, _label: &str) {}
+
+#[cfg(target_os = "windows")]
+fn prune_debug_captures(captures_dir: &Path, keep_count: usize) {
+    let Ok(entries) = std::fs::read_dir(captures_dir) else {
+        return;
+    };
+
+    let mut capture_files = entries
+        .filter_map(|entry| {
+            let entry = entry.ok()?;
+            let path = entry.path();
+            let extension = path.extension()?.to_str()?;
+            if !extension.eq_ignore_ascii_case("bmp") {
+                return None;
+            }
+            let modified = entry.metadata().ok()?.modified().ok()?;
+            Some((modified, path))
+        })
+        .collect::<Vec<_>>();
+
+    if capture_files.len() <= keep_count {
+        return;
+    }
+
+    capture_files.sort_by(|left, right| right.0.cmp(&left.0));
+    for (_, path) in capture_files.into_iter().skip(keep_count) {
+        let _ = std::fs::remove_file(path);
+    }
+}
 
 #[cfg(target_os = "windows")]
 fn capture_screen_rect_bgra(rect: RECT, width: i32, height: i32) -> Option<Vec<u8>> {
@@ -1518,6 +1575,39 @@ impl AutomationSession {
         candidates.sort_by(|left, right| left.0.cmp(&right.0).then(left.1.cmp(&right.1)));
         debug_log(&format!("new_chat_target_found={}", !candidates.is_empty()));
         Ok(candidates.pop().map(|(_, _, element)| element))
+    }
+
+    fn send_button_ready(&self) -> Result<bool, String> {
+        let window_height = self.window_rect.bottom - self.window_rect.top;
+        let window_width = self.window_rect.right - self.window_rect.left;
+        let lower_bound = self.window_rect.top + (window_height * 3 / 5);
+        let right_half_left = self.window_rect.left + (window_width / 2);
+
+        for element in self.descendants()? {
+            let control_type =
+                unsafe { element.CurrentControlType() }.map_err(|error| error.to_string())?;
+            if control_type != UIA_ButtonControlTypeId {
+                continue;
+            }
+            let rect = match element_rect_if_visible(&element, self.window_rect) {
+                Some(rect) => rect,
+                None => continue,
+            };
+            if rect.bottom < lower_bound || rect.left < right_half_left {
+                continue;
+            }
+
+            let blob = element_text_blob(&element);
+            if contains_any_label(&blob, &SEND_HINT_LABELS)
+                && unsafe { element.CurrentIsEnabled() }
+                    .ok()
+                    .is_some_and(|value| value.as_bool())
+            {
+                return Ok(true);
+            }
+        }
+
+        Ok(false)
     }
 
     fn reply_text_candidates(&self) -> Result<Vec<(usize, RECT, String)>, String> {

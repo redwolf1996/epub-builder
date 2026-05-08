@@ -41,14 +41,24 @@ const chapters: Chapter[] = [
 ]
 
 describe('buildMarkdownExport', () => {
-  it('includes book metadata and nested chapter headings', () => {
+  it('exports clean nested chapter headings without a duplicated toc block', () => {
     const markdown = buildMarkdownExport(meta, chapters)
 
     expect(markdown).toContain('# Demo Book')
-    expect(markdown).toContain('> Alice')
+    expect(markdown).not.toContain('## 目录')
     expect(markdown).toContain('## Root 1')
     expect(markdown).toContain('### Child 1')
     expect(markdown).toContain('Nested body')
+  })
+
+  it('removes duplicate leading chapter headings from chapter content', () => {
+    const markdown = buildMarkdownExport(meta, [{
+      ...chapters[0],
+      content: '# Root 1\n\nIntro',
+    }])
+
+    expect(markdown.match(/^## Root 1$/gm)).toHaveLength(1)
+    expect(markdown).toContain('Intro')
   })
 })
 

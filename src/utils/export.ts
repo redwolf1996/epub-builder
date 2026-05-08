@@ -127,6 +127,17 @@ export function deduplicateChapterTitle(html: string, chapterTitle: string): str
   return html.slice(headingMatch[0].length).trimStart()
 }
 
+function deduplicateMarkdownHeading(content: string, chapterTitle: string): string {
+  const headingMatch = content.match(/^\s{0,3}#{1,6}\s+(.+?)\s*$/m)
+  if (!headingMatch || headingMatch.index !== 0) return content.trim()
+
+  if (normalizeBlockText(headingMatch[1]) !== normalizeBlockText(chapterTitle)) {
+    return content.trim()
+  }
+
+  return content.slice(headingMatch[0].length).trimStart()
+}
+
 export function buildChapterBody(title: string, html: string, anchor: string): string {
   const bodyHtml = deduplicateChapterTitle(html, title)
   const bodyContent = isMeaningfulContent(bodyHtml) ? bodyHtml : '<p></p>'
@@ -220,20 +231,12 @@ export function buildMarkdownExport(meta: BookMeta, chapters: Chapter[]): string
     lines.push(`# ${meta.title.trim()}`, '')
   }
 
-  if (meta.author.trim()) {
-    lines.push(`> ${meta.author.trim()}`, '')
-  }
-
-  if (meta.description.trim()) {
-    lines.push(meta.description.trim(), '')
-  }
-
   for (const chapter of flattened) {
     const level = Math.min(chapter.depth + 2, 6)
     const heading = `${'#'.repeat(level)} ${chapter.title.trim()}`
     lines.push(heading, '')
 
-    const content = chapter.content.trim()
+    const content = deduplicateMarkdownHeading(chapter.content, chapter.title)
     if (content) {
       lines.push(content, '')
     }

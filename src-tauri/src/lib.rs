@@ -1,4 +1,5 @@
 mod doubao;
+mod pdf_export;
 
 use image::{
     ImageEncoder, ImageReader, Rgba, RgbaImage,
@@ -423,6 +424,28 @@ fn merge_images(file_paths: Vec<String>) -> Result<String, String> {
     Ok(output_path.to_string_lossy().to_string())
 }
 
+#[tauri::command]
+fn export_pdf(request: pdf_export::ExportPdfRequest) -> Result<(), String> {
+    let export_path = request.file_path.clone();
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        pdf_export::export_pdf_file(request)
+    })) {
+        Ok(result) => result,
+        Err(payload) => {
+            let panic_message = if let Some(message) = payload.downcast_ref::<&str>() {
+                (*message).to_string()
+            } else if let Some(message) = payload.downcast_ref::<String>() {
+                message.clone()
+            } else {
+                "unknown panic".to_string()
+            };
+            let message = format!("PDF export panicked for {}: {}", export_path, panic_message);
+            pdf_export::log_export_event(&message);
+            Err(message)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{MAX_MERGE_TOTAL_HEIGHT, build_merge_plan_from_dimensions};
@@ -524,6 +547,7 @@ pub fn run() {
             check_doubao_running,
             check_merge_images,
             merge_images,
+            export_pdf,
             delete_merged_temp_file,
             toggle_menu
         ])

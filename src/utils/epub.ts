@@ -1,5 +1,12 @@
 import { renderExportMarkdown } from '@/utils/markdown'
-import { db } from '@/db'
+import {
+  buildChapterBody,
+  deduplicateChapterTitle,
+  flattenChapters,
+  getExportPayload,
+  isTauri,
+  saveBlobFile,
+} from '@/utils/export'
 import type { BookMeta, Chapter } from '@/types'
 import type { Options, Content } from 'epub-gen-memory'
 
@@ -18,11 +25,6 @@ type ExportChapter = {
 
 type ExportChapterNode = ExportChapter & {
   children: ExportChapterNode[]
-}
-
-export type ExportValidationResult = {
-  blockingErrors: string[]
-  warnings: string[]
 }
 
 export type DownloadEpubResult =
@@ -78,48 +80,13 @@ function escapeXml(value: string): string {
   return escapeHtml(value)
 }
 
-function isMeaningfulContent(html: string): boolean {
-  return html.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, '').trim().length > 0
-}
-
 function normalizeAuthor(author: string): string[] {
   return author
     ? author.split(/[&,，]/).map((item) => item.trim()).filter(Boolean)
     : ['Unknown Author']
 }
 
-export function deduplicateChapterTitle(html: string, chapterTitle: string): string {
-  const headingMatch = html.match(/^\s*<h([1-6])(?:\s[^>]*)?>(.*?)<\/h[1-6]>/)
-  if (!headingMatch) return html
-
-  const headingText = headingMatch[2].replace(/<[^>]*>/g, '').trim()
-  if (headingText !== chapterTitle.trim()) return html
-
-  return html.slice(headingMatch[0].length).trimStart()
-}
-
-export function buildChapterBody(title: string, html: string, anchor: string): string {
-  const bodyHtml = deduplicateChapterTitle(html, title)
-  const bodyContent = isMeaningfulContent(bodyHtml) ? bodyHtml : '<p></p>'
-  return `<section epub:type="chapter"><h1 id="${escapeHtml(anchor)}" style="color:#00AA44">${escapeHtml(title)}</h1>${bodyContent}</section>`
-}
-
-export function flattenChapters(chapters: Chapter[]): Array<Chapter & { depth: number }> {
-  const flatten = (parentId: string | null, depth: number): Array<Chapter & { depth: number }> => {
-    const siblings = chapters
-      .filter((chapter) => chapter.parentId === parentId)
-      .sort((a, b) => a.order - b.order)
-
-    const result: Array<Chapter & { depth: number }> = []
-    for (const chapter of siblings) {
-      result.push({ ...chapter, depth })
-      result.push(...flatten(chapter.id, depth + 1))
-    }
-    return result
-  }
-
-  return flatten(null, 0)
-}
+export { deduplicateChapterTitle, buildChapterBody, flattenChapters, isTauri }
 
 export function buildExportChapters(chapters: Chapter[]): ExportChapter[] {
   return flattenChapters(chapters).map((chapter, index) => {
@@ -218,75 +185,6 @@ function validateExportChapters(chapters: ExportChapter[]) {
   }
 }
 
-function collectEmbeddedImageWarnings(chapters: Chapter[]): string[] {
-  const maxEmbeddedImageBytes = 1_000_000
-
-  for (const chapter of chapters) {
-    const matches = chapter.content.match(/!\[[^\]]*]\((data:image\/[^)]+)\)/g) ?? []
-    for (const match of matches) {
-      const base64 = match.match(/base64,([A-Za-z0-9+/=]+)/)?.[1]
-      if (!base64) continue
-
-      const estimatedBytes = Math.floor(base64.length * 0.75)
-      if (estimatedBytes > maxEmbeddedImageBytes) {
-        return ['Large embedded images may affect export size and reader compatibility']
-      }
-    }
-  }
-
-  return []
-}
-
-export async function validateExport(bookId: string): Promise<ExportValidationResult> {
-  const book = await db.books.get(bookId)
-  if (!book) {
-    return {
-      blockingErrors: ['Book not found'],
-      warnings: [],
-    }
-  }
-
-  const chapters = await db.chapters
-    .where('bookId')
-    .equals(bookId)
-    .sortBy('order')
-
-  return validateExportPayload(book.meta.title, chapters)
-}
-
-export function validateExportPayload(bookTitle: string, chapters: Chapter[]): ExportValidationResult {
-  const blockingErrors: string[] = []
-  const warnings: string[] = []
-
-  if (!bookTitle.trim()) {
-    blockingErrors.push('Book title is required for export')
-  }
-
-  if (chapters.length === 0) {
-    blockingErrors.push('No chapters to export')
-  }
-
-  const emptyChapterTitles = chapters.some((chapter) => !chapter.title.trim())
-  if (emptyChapterTitles) {
-    blockingErrors.push('Every chapter must have a title before export')
-  }
-
-  const normalizedTitles = chapters
-    .map((chapter) => chapter.title.trim().toLocaleLowerCase())
-    .filter(Boolean)
-  const hasDuplicateTitles = new Set(normalizedTitles).size !== normalizedTitles.length
-  if (hasDuplicateTitles) {
-    warnings.push('Duplicate chapter titles may make the table of contents harder to scan')
-  }
-
-  warnings.push(...collectEmbeddedImageWarnings(chapters))
-
-  return {
-    blockingErrors,
-    warnings,
-  }
-}
-
 function generateTitlePage(meta: BookMeta): string {
   const coverImg = meta.coverImage
     ? `<div style="text-align:center;margin-bottom:2em"><img src="${meta.coverImage}" alt="Cover" style="max-width:60%;max-height:400px;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,0.2)" /></div>`
@@ -324,13 +222,7 @@ async function toCoverFile(coverImage: string | null): Promise<string | File | u
 }
 
 export async function exportToEpub(bookId: string): Promise<Blob> {
-  const book = await db.books.get(bookId)
-  if (!book) throw new Error('Book not found')
-
-  const allChapters = await db.chapters
-    .where('bookId')
-    .equals(bookId)
-    .sortBy('order')
+  const { book, chapters: allChapters } = await getExportPayload(bookId)
 
   if (allChapters.length === 0) throw new Error('No chapters to export')
 
@@ -388,38 +280,6 @@ export async function exportToEpub(bookId: string): Promise<Blob> {
   return new Blob([new Uint8Array(result as unknown as ArrayBuffer)], { type: 'application/epub+zip' })
 }
 
-export function isTauri(): boolean {
-  return !!window.__TAURI_INTERNALS__
-}
-
-async function downloadEpubTauri(blob: Blob, filename: string): Promise<DownloadEpubResult> {
-  const { save } = await import('@tauri-apps/plugin-dialog')
-  const { writeFile } = await import('@tauri-apps/plugin-fs')
-  const filePath = await save({
-    defaultPath: `${filename}.epub`,
-    filters: [{ name: 'EPUB', extensions: ['epub'] }],
-  })
-
-  if (!filePath) return { status: 'cancelled' }
-
-  const buffer = await blob.arrayBuffer()
-  await writeFile(filePath, new Uint8Array(buffer))
-  return { status: 'saved', filePath }
-}
-
 export async function downloadEpub(blob: Blob, filename: string): Promise<DownloadEpubResult> {
-  if (isTauri()) {
-    return downloadEpubTauri(blob, filename)
-  }
-
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = `${filename}.epub`
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
-  URL.revokeObjectURL(url)
-
-  return { status: 'saved' }
+  return saveBlobFile(blob, filename, 'epub', 'EPUB')
 }

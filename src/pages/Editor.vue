@@ -8,9 +8,9 @@
   import { invoke } from '@tauri-apps/api/core'
   import { useBookStore } from '@/stores/book'
   import { useEditorStore } from '@/stores/editor'
-  import { useEpub } from '@/composables/useEpub'
+  import { useExport } from '@/composables/useExport'
   import { useAiOcrSettings } from '@/composables/useAiOcrSettings'
-  import { isTauri } from '@/utils/epub'
+  import { getExportFilename, isTauri, type ExportFormat } from '@/utils/export'
   import { useResizable } from '@/composables/useResizable'
   import { useChapterManager } from '@/composables/useChapterManager'
   import { useScrollSync } from '@/composables/useScrollSync'
@@ -97,7 +97,7 @@
     confirmRename, cancelRename, toggleCollapse, onChapterSortEnd,
   } = useChapterManager(bookStore, editorStore, cmEditorRef, bookId, message, t)
   const { handleEditorScroll, handlePreviewScroll } = useScrollSync(cmEditorRef, previewRef, syncScroll)
-  const { exporting, handleExport: doExport, validateExport } = useEpub()
+  const { exporting, handleExport: doExport, validateExport } = useExport()
 
   const showDrawerToggle = computed(() => isFullscreen.value || isMobile.value)
   const drawerVisible = computed(() => showDrawerToggle.value && showChapterDrawer.value)
@@ -497,7 +497,50 @@
     }
   }
 
-  const handleExport = async () => {
+  const getExportSuccessMessage = (format: ExportFormat) => {
+    switch (format) {
+      case 'markdown':
+        return t('export.markdownSaved')
+      case 'pdf':
+        return isTauri() ? t('export.pdfSaved') : t('export.pdfOpened')
+      default:
+        return t('epub.exportSaved')
+    }
+  }
+
+  const getExportCancelledMessage = (format: ExportFormat) => {
+    switch (format) {
+      case 'markdown':
+        return t('export.markdownCancelled')
+      case 'pdf':
+        return isTauri() ? t('epub.exportCancelled') : t('export.pdfCancelled')
+      default:
+        return t('epub.exportCancelled')
+    }
+  }
+
+  const getExportFallbackName = (format: ExportFormat) => {
+    switch (format) {
+      case 'markdown':
+        return t('editor.exportMarkdown')
+      case 'pdf':
+        return t('editor.exportPdf')
+      default:
+        return t('editor.exportEpub')
+    }
+  }
+
+  const notifyExportSaved = (body: string) => {
+    if (!isTauri()) return
+
+    import('@tauri-apps/plugin-notification')
+      .then(({ sendNotification }) => {
+        sendNotification({ title: 'EPUB Builder', body })
+      })
+      .catch(() => { })
+  }
+
+  const handleExport = async (format: ExportFormat) => {
     try {
       await editorStore.flushSave()
 
@@ -512,25 +555,32 @@
         if (!shouldContinue) return
       }
 
-      const title = bookStore.activeBook?.meta.title || t('editor.exportEpub')
-      const result = await doExport(bookId, title)
+      const title = getExportFilename(bookStore.activeBook?.meta.title || '', getExportFallbackName(format))
+      const result = await doExport(format, bookId, title)
 
       if (result.status === 'cancelled') {
-        message.info(t('epub.exportCancelled'))
+        message.info(getExportCancelledMessage(format))
         return
       }
 
-      message.success(t('epub.exportSaved'))
-      if (isTauri()) {
-        import('@tauri-apps/plugin-notification')
-          .then(({ sendNotification }) => {
-            sendNotification({ title: 'EPUB Builder', body: t('epub.exportSaved') })
-          })
-          .catch(() => { })
+      if (result.status === 'opened') {
+        message.success(getExportSuccessMessage(format))
+        return
       }
+
+      const successMessage = getExportSuccessMessage(format)
+      message.success(successMessage)
+      notifyExportSaved(successMessage)
     } catch (error) {
       const reason = error instanceof Error ? error.message : t('epub.exportFailed')
       message.error(reason)
+    }
+  }
+
+  const handleMenuExport = (event: Event) => {
+    const format = (event as CustomEvent<ExportFormat>).detail
+    if (format === 'epub' || format === 'pdf' || format === 'markdown') {
+      void handleExport(format)
     }
   }
 
@@ -546,7 +596,7 @@
 
     window.addEventListener('resize', handleResize)
     window.addEventListener('keydown', handleKeydown)
-    window.addEventListener('menu-export', handleExport)
+    window.addEventListener('menu-export', handleMenuExport as EventListener)
     window.addEventListener('menu-find-replace', onMenuFindReplace)
     window.addEventListener('menu-fullscreen', toggleFullscreen)
     window.addEventListener('menu-scroll-sync', onMenuScrollSync)
@@ -557,7 +607,7 @@
     aiOcrClipboardUnlisten.value = null
     window.removeEventListener('resize', handleResize)
     window.removeEventListener('keydown', handleKeydown)
-    window.removeEventListener('menu-export', handleExport)
+    window.removeEventListener('menu-export', handleMenuExport as EventListener)
     window.removeEventListener('menu-find-replace', onMenuFindReplace)
     window.removeEventListener('menu-fullscreen', toggleFullscreen)
     window.removeEventListener('menu-scroll-sync', onMenuScrollSync)

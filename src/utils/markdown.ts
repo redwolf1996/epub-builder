@@ -17,6 +17,7 @@ import rust from 'highlight.js/lib/languages/rust'
 import go from 'highlight.js/lib/languages/go'
 
 type RenderTarget = 'preview' | 'export'
+export type MarkdownToken = ReturnType<MarkdownIt['parse']>[number]
 
 const allowedTags = new Set([
   'a', 'blockquote', 'br', 'code', 'del', 'em', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
@@ -113,6 +114,10 @@ const exportMarkdown = createMarkdownRenderer()
 
 function preprocessMarkdown(content: string): string {
   return content.replace(/^(\u3000+)/gm, (spaces: string) => '&emsp;'.repeat(spaces.length))
+}
+
+export function preprocessMarkdownForRender(content: string): string {
+  return preprocessMarkdown(content)
 }
 
 function postprocessRenderedHtml(html: string): string {
@@ -241,6 +246,10 @@ export function renderPreviewMarkdown(content: string): string {
 
 export function renderExportMarkdown(content: string): string {
   return renderWithPipeline(content, 'export')
+}
+
+export function parseExportMarkdownTokens(content: string): MarkdownToken[] {
+  return exportMarkdown.parse(preprocessMarkdown(content), {})
 }
 
 export function renderMarkdown(content: string): string {

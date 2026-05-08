@@ -8,8 +8,8 @@ import {
   buildTocXhtmlBody,
   buildTocNcxBody,
   getMaxTocDepth,
-  validateExportPayload,
 } from '@/utils/epub'
+import { validateExportPayload } from '@/utils/export'
 
 const chapters: Chapter[] = [
   {

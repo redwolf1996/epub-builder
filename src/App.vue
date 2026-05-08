@@ -8,7 +8,7 @@
   import { useBookStore } from '@/stores/book'
   import ThemeSwitcher from '@/components/common/ThemeSwitcher.vue'
 
-  import { isTauri } from '@/utils/epub'
+  import { isTauri } from '@/utils/export'
 
   const route = useRoute()
   const router = useRouter()
@@ -19,6 +19,8 @@
   type NativeMenuHandles = {
     editMenu: import('@tauri-apps/api/menu').Submenu
     exportEpubItem: import('@tauri-apps/api/menu').MenuItem
+    exportPdfItem: import('@tauri-apps/api/menu').MenuItem
+    exportMarkdownItem: import('@tauri-apps/api/menu').MenuItem
     toggleScrollSyncItem: import('@tauri-apps/api/menu').MenuItem
   }
 
@@ -70,12 +72,16 @@
       const { Menu, Submenu, MenuItem, PredefinedMenuItem } = await import('@tauri-apps/api/menu')
 
       const exportEpubItem = await MenuItem.new({ id: 'export_epub', text: t('menu.exportEpub'), accelerator: 'Ctrl+E' })
+      const exportPdfItem = await MenuItem.new({ id: 'export_pdf', text: t('menu.exportPdf') })
+      const exportMarkdownItem = await MenuItem.new({ id: 'export_markdown', text: t('menu.exportMarkdown') })
       const fileMenu = await Submenu.new({
         text: t('menu.file'),
         items: [
           await MenuItem.new({ id: 'new_book', text: t('menu.newBook'), accelerator: 'Ctrl+N' }),
           await PredefinedMenuItem.new({ item: 'Separator' }),
           exportEpubItem,
+          exportPdfItem,
+          exportMarkdownItem,
           await PredefinedMenuItem.new({ item: 'Separator' }),
           await PredefinedMenuItem.new({ item: 'Quit', text: t('menu.quit') }),
         ],
@@ -119,6 +125,8 @@
       nativeMenuHandles = {
         editMenu,
         exportEpubItem,
+        exportPdfItem,
+        exportMarkdownItem,
         toggleScrollSyncItem,
       }
       await syncNativeMenuState()
@@ -132,6 +140,8 @@
     await Promise.all([
       nativeMenuHandles.editMenu.setEnabled(editorOnly),
       nativeMenuHandles.exportEpubItem.setEnabled(editorOnly),
+      nativeMenuHandles.exportPdfItem.setEnabled(editorOnly),
+      nativeMenuHandles.exportMarkdownItem.setEnabled(editorOnly),
       nativeMenuHandles.toggleScrollSyncItem.setEnabled(editorOnly),
     ])
   }
@@ -163,7 +173,13 @@
             navigateToCreateBook()
             break
           case 'export_epub':
-            window.dispatchEvent(new CustomEvent('menu-export'))
+            window.dispatchEvent(new CustomEvent('menu-export', { detail: 'epub' }))
+            break
+          case 'export_pdf':
+            window.dispatchEvent(new CustomEvent('menu-export', { detail: 'pdf' }))
+            break
+          case 'export_markdown':
+            window.dispatchEvent(new CustomEvent('menu-export', { detail: 'markdown' }))
             break
           case 'find_replace':
             window.dispatchEvent(new CustomEvent('menu-find-replace'))

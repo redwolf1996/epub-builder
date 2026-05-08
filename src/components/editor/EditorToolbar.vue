@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, h, ref } from 'vue'
-import { NButton, NPopover, NTooltip } from 'naive-ui'
+import { NButton, NDropdown, NPopover, NTooltip } from 'naive-ui'
 import { useI18n } from 'vue-i18n'
 import MarkdownHelp from '@/components/editor/MarkdownHelp.vue'
-import { isTauri } from '@/utils/epub'
+import { isTauri, type ExportFormat } from '@/utils/export'
 
 const props = defineProps<{
   exporting?: boolean
@@ -15,7 +15,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  export: []
+  export: [format: ExportFormat]
   aiOcr: []
   openDevtools: []
   fullscreen: []
@@ -44,6 +44,12 @@ const optionIcon = (iconClass: string, style?: string) => () => h('span', {
   class: `${iconClass} text-sm`,
   style,
 })
+
+const exportOptions = computed(() => ([
+  { label: t('editor.exportEpub'), key: 'epub', icon: optionIcon('i-carbon-book') },
+  { label: t('editor.exportPdf'), key: 'pdf', icon: optionIcon('i-carbon-document-pdf') },
+  { label: t('editor.exportMarkdown'), key: 'markdown', icon: optionIcon('i-carbon-document') },
+]))
 
 const moreActions = computed<Array<{ key: string; label: string; icon: () => ReturnType<typeof h> }>>(() => ([
   { key: 'inlineCode', label: t('toolbar.inlineCode'), icon: optionIcon('i-carbon-code') },
@@ -124,6 +130,12 @@ const handleMoreSelect = (key: string) => {
 }
 
 const withShortcut = (label: string, shortcut: string) => `${label} (${shortcut})`
+
+const handleExportSelect = (key: string) => {
+  if (key === 'epub' || key === 'pdf' || key === 'markdown') {
+    emit('export', key)
+  }
+}
 </script>
 
 <template>
@@ -309,12 +321,15 @@ const withShortcut = (label: string, shortcut: string) => `${label} (${shortcut}
 
     <div class="flex-1" />
 
-    <NButton type="primary" size="small" :loading="props.exporting" :disabled="props.ocrProcessing" @click="emit('export')">
-      <span v-if="!props.exporting" class="i-carbon-download" :class="{ 'mr-1': !props.compact }" />
-      <span v-if="!props.compact">
-        {{ props.exporting ? t('editor.exporting') : t('editor.exportEpub') }}
-      </span>
-    </NButton>
+    <NDropdown :options="exportOptions" trigger="click" placement="bottom-end" @select="handleExportSelect">
+      <NButton type="primary" size="small" :loading="props.exporting" :disabled="props.ocrProcessing">
+        <span v-if="!props.exporting" class="i-carbon-download" :class="{ 'mr-1': !props.compact }" />
+        <span v-if="!props.compact">
+          {{ props.exporting ? t('editor.exporting') : t('editor.export') }}
+        </span>
+        <span v-if="!props.compact && !props.exporting" class="i-carbon-chevron-down ml-1 text-xs" />
+      </NButton>
+    </NDropdown>
 
     <MarkdownHelp v-model:show="showHelp" />
   </div>

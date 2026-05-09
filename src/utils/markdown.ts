@@ -30,7 +30,7 @@ const blockedTags = new Set([
   'textarea', 'select', 'option', 'link', 'meta',
 ])
 
-const globalAttributes = new Set(['data-line'])
+const globalAttributes = new Set(['data-line', 'data-line-end'])
 
 const allowedAttributesByTag = new Map<string, Set<string>>([
   ['a', new Set(['href', 'title'])],
@@ -74,7 +74,7 @@ hljs.registerLanguage('go', go)
 
 function sourceLinePlugin(md: MarkdownIt) {
   const blockTokens = new Set([
-    'heading_open', 'paragraph_open', 'bullet_list_open', 'ordered_list_open',
+    'heading_open', 'paragraph_open',
     'list_item_open', 'blockquote_open', 'fence', 'code_block', 'table_open',
     'hr', 'html_block',
   ])
@@ -82,6 +82,7 @@ function sourceLinePlugin(md: MarkdownIt) {
     for (const token of state.tokens) {
       if (blockTokens.has(token.type) && token.map) {
         token.attrSet('data-line', String(token.map[0] + 1))
+        token.attrSet('data-line-end', String(Math.max(token.map[0] + 1, token.map[1])))
       }
     }
   })

@@ -257,6 +257,7 @@ export default {
     genericParsing: 'Parsing the import file...',
     epubParsing: 'Parsing the EPUB. The importer is prioritizing chapter structure and text...',
     pdfParsing: 'Extracting text from the PDF...',
+    supportedFormats: 'Supported imports: Markdown / EPUB / PDF',
     sourceName: 'Source: {name}',
     bookTitle: 'Title',
     sectionCount: 'Sections',

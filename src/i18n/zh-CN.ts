@@ -257,6 +257,7 @@ export default {
     genericParsing: '正在解析导入文件...',
     epubParsing: '正在解析 EPUB，当前优先导入章节结构与文本内容...',
     pdfParsing: '正在提取 PDF 文本内容...',
+    supportedFormats: '支持导入：Markdown / EPUB / PDF',
     sourceName: '源文件：{name}',
     bookTitle: '书名',
     sectionCount: '章节数',

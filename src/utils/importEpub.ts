@@ -1,6 +1,7 @@
-import { BlobReader, TextWriter, ZipReader } from '@zip.js/zip.js'
+import { BlobReader, BlobWriter, ZipReader } from '@zip.js/zip.js'
 import TurndownService from 'turndown'
 import { toEpubAssetPlaceholder } from '@/utils/assets'
+import { decodeImportText, extractDeclaredEncoding } from '@/utils/importText'
 import type { ImportAssetSource, ImportDocument, ImportSection, ImportWarning } from '@/types'
 
 type ManifestItem = {
@@ -19,7 +20,7 @@ const turndown = new TurndownService({
 type ReadableZipEntry = {
   filename: string
   directory?: boolean
-  getData: <T>(writer: TextWriter) => Promise<T>
+  getData: <T>(writer: BlobWriter) => Promise<T>
 }
 
 function parseXml(content: string): Document {
@@ -28,6 +29,17 @@ function parseXml(content: string): Document {
 
 function parseHtml(content: string): Document {
   return new DOMParser().parseFromString(content, 'text/html')
+}
+
+async function readEntryBytes(entry: ReadableZipEntry): Promise<Uint8Array> {
+  const blob = await entry.getData<Blob>(new BlobWriter())
+  return new Uint8Array(await blob.arrayBuffer())
+}
+
+async function readEntryText(entry: ReadableZipEntry, mediaType?: string | null): Promise<string> {
+  const bytes = await readEntryBytes(entry)
+  const declaredEncoding = extractDeclaredEncoding(bytes, mediaType)
+  return decodeImportText(bytes, { declaredEncoding, mediaType })
 }
 
 function getTextContentByLocalName(doc: Document, localName: string): string {
@@ -126,7 +138,7 @@ export async function parseEpubImport(file: File): Promise<ImportDocument> {
       throw new Error('Missing META-INF/container.xml')
     }
 
-    const containerXml = await containerEntry.getData<string>(new TextWriter())
+    const containerXml = await readEntryText(containerEntry, 'application/xml')
     const containerDoc = parseXml(containerXml)
     const rootFilePath = Array.from(containerDoc.getElementsByTagName('*'))
       .find((node) => node.localName === 'rootfile')
@@ -141,7 +153,7 @@ export async function parseEpubImport(file: File): Promise<ImportDocument> {
       throw new Error(`Missing OPF package: ${rootFilePath}`)
     }
 
-    const opfText = await opfEntry.getData<string>(new TextWriter())
+    const opfText = await readEntryText(opfEntry, 'application/oebps-package+xml')
     const opfDoc = parseXml(opfText)
     const opfDir = dirname(rootFilePath)
 
@@ -178,7 +190,7 @@ export async function parseEpubImport(file: File): Promise<ImportDocument> {
         continue
       }
 
-      const chapterHtml = await chapterEntry.getData<string>(new TextWriter())
+      const chapterHtml = await readEntryText(chapterEntry, item.mediaType)
       const chapterDoc = parseHtml(chapterHtml)
       const chapterRoot = createChapterRoot(chapterDoc)
 

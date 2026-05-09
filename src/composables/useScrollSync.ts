@@ -3,7 +3,8 @@ import type CodeMirrorEditor from '@/components/editor/CodeMirrorEditor.vue'
 import type MarkdownPreview from '@/components/preview/MarkdownPreview.vue'
 
 export interface LineAnchor {
-  line: number
+  lineStart: number
+  lineEnd: number
   top: number
   bottom: number
 }
@@ -17,6 +18,7 @@ export interface ScrollSnapshot {
 type ScrollSyncHandle = {
   getScrollSnapshot: () => ScrollSnapshot | null
   getPositionMap: () => LineAnchor[]
+  getLastUserScrollIntent: () => number
   setScrollTop: (top: number) => void
   scrollToLine?: (line: number, offsetY?: number) => void
 }
@@ -41,12 +43,15 @@ function getScrollRatio(snapshot: ScrollSnapshot): number {
 export function findClosestAnchorIndexByLine(anchors: LineAnchor[], line: number): number {
   if (anchors.length === 0) return -1
 
+  const containingIndex = anchors.findIndex((anchor) => line >= anchor.lineStart && line <= anchor.lineEnd)
+  if (containingIndex !== -1) return containingIndex
+
   let lo = 0
   let hi = anchors.length - 1
 
   while (lo < hi) {
     const mid = (lo + hi) >> 1
-    if (anchors[mid].line < line) lo = mid + 1
+    if (anchors[mid].lineStart < line) lo = mid + 1
     else hi = mid
   }
 
@@ -54,7 +59,9 @@ export function findClosestAnchorIndexByLine(anchors: LineAnchor[], line: number
   const previous = lo > 0 ? anchors[lo - 1] : null
   if (!previous) return lo
 
-  return Math.abs(previous.line - line) <= Math.abs(current.line - line) ? lo - 1 : lo
+  const currentDistance = line < current.lineStart ? current.lineStart - line : line - current.lineEnd
+  const previousDistance = line < previous.lineStart ? previous.lineStart - line : line - previous.lineEnd
+  return previousDistance <= currentDistance ? lo - 1 : lo
 }
 
 function findAnchorIndexByScrollTop(anchors: LineAnchor[], scrollTop: number): number {
@@ -95,32 +102,22 @@ export function calculateSyncedScrollTop(
   }
 
   const sourceAnchor = sourceAnchors[sourceIndex]
-  const sourceNextAnchor = sourceAnchors[sourceIndex + 1] ?? null
-  const targetIndex = findClosestAnchorIndexByLine(targetAnchors, sourceAnchor.line)
+  const targetIndex = findClosestAnchorIndexByLine(targetAnchors, sourceAnchor.lineStart)
   if (targetIndex === -1) {
     return {
       scrollTop: clampScrollTop(getScrollRatio(sourceSnapshot) * getMaxScrollTop(targetSnapshot), targetSnapshot),
-      fallbackLine: sourceAnchor.line,
+      fallbackLine: sourceAnchor.lineStart,
     }
   }
 
   const targetAnchor = targetAnchors[targetIndex]
-  const targetNextAnchor = targetAnchors[targetIndex + 1] ?? null
-
-  const sourceIntervalEnd = sourceNextAnchor
-    ? Math.max(sourceNextAnchor.top, sourceAnchor.bottom)
-    : sourceAnchor.bottom
-  const targetIntervalEnd = targetNextAnchor
-    ? Math.max(targetNextAnchor.top, targetAnchor.bottom)
-    : targetAnchor.bottom
-
-  const sourceIntervalHeight = Math.max(sourceIntervalEnd - sourceAnchor.top, 1)
-  const targetIntervalHeight = Math.max(targetIntervalEnd - targetAnchor.top, 1)
+  const sourceIntervalHeight = Math.max(sourceAnchor.bottom - sourceAnchor.top, 1)
+  const targetIntervalHeight = Math.max(targetAnchor.bottom - targetAnchor.top, 1)
   const progress = Math.min(Math.max((sourceSnapshot.scrollTop - sourceAnchor.top) / sourceIntervalHeight, 0), 1)
 
   return {
-    scrollTop: clampScrollTop(targetAnchor.top + targetIntervalHeight * progress, targetSnapshot),
-    fallbackLine: sourceAnchor.line,
+    scrollTop: clampScrollTop(targetAnchor.top + (targetIntervalHeight * progress), targetSnapshot),
+    fallbackLine: sourceAnchor.lineStart,
   }
 }
 
@@ -129,10 +126,59 @@ export function useScrollSync(
   previewRef: Ref<PreviewRef | null>,
   syncScroll: Ref<boolean>,
 ) {
+  const USER_SCROLL_INTENT_WINDOW_MS = 220
+  const ACTIVE_SOURCE_WINDOW_MS = 320
+  const PROGRAMMATIC_SCROLL_WINDOW_MS = 220
+
   let suppressEditorScroll = false
   let suppressPreviewScroll = false
   let releaseEditorRaf = 0
   let releasePreviewRaf = 0
+  let activeSource: 'editor' | 'preview' | null = null
+  let activeSourceExpiresAt = 0
+  let editorProgrammaticUntil = 0
+  let previewProgrammaticUntil = 0
+
+  const getNow = () => Date.now()
+
+  const getProgrammaticUntil = (target: 'editor' | 'preview') => {
+    return target === 'editor' ? editorProgrammaticUntil : previewProgrammaticUntil
+  }
+
+  const setProgrammaticUntil = (target: 'editor' | 'preview', expiresAt: number) => {
+    if (target === 'editor') {
+      editorProgrammaticUntil = expiresAt
+      return
+    }
+
+    previewProgrammaticUntil = expiresAt
+  }
+
+  const hasRecentUserIntent = (source: ScrollSyncHandle | null, now: number) => {
+    if (!source) return false
+    return now - source.getLastUserScrollIntent() <= USER_SCROLL_INTENT_WINDOW_MS
+  }
+
+  const canSourceDriveSync = (
+    source: ScrollSyncHandle | null,
+    sourceName: 'editor' | 'preview',
+  ) => {
+    const now = getNow()
+    if (now < getProgrammaticUntil(sourceName)) return false
+
+    if (hasRecentUserIntent(source, now)) {
+      activeSource = sourceName
+      activeSourceExpiresAt = now + ACTIVE_SOURCE_WINDOW_MS
+      return true
+    }
+
+    if (activeSource === sourceName && now <= activeSourceExpiresAt) {
+      activeSourceExpiresAt = now + ACTIVE_SOURCE_WINDOW_MS
+      return true
+    }
+
+    return false
+  }
 
   const clearSuppression = (target: 'editor' | 'preview') => {
     if (target === 'editor') {
@@ -184,6 +230,17 @@ export function useScrollSync(
     )
 
     suppressTargetScroll(targetName)
+    setProgrammaticUntil(targetName, getNow() + PROGRAMMATIC_SCROLL_WINDOW_MS)
+    if (fallbackLine !== null && target.scrollToLine && targetAnchors.length > 0) {
+      const targetIndex = findClosestAnchorIndexByLine(targetAnchors, fallbackLine)
+      const targetAnchor = targetIndex >= 0 ? targetAnchors[targetIndex] : null
+      const fallbackOutsideTargetRange = !targetAnchor || fallbackLine < targetAnchor.lineStart || fallbackLine > targetAnchor.lineEnd
+      if (fallbackOutsideTargetRange) {
+        target.scrollToLine(fallbackLine)
+        return
+      }
+    }
+
     if (targetAnchors.length === 0 && fallbackLine !== null && target.scrollToLine) {
       target.scrollToLine(fallbackLine)
       return
@@ -194,11 +251,13 @@ export function useScrollSync(
 
   const handleEditorScroll = () => {
     if (!syncScroll.value || suppressEditorScroll) return
+    if (!canSourceDriveSync(cmEditorRef.value, 'editor')) return
     syncScrollPosition(cmEditorRef.value, previewRef.value, 'preview')
   }
 
   const handlePreviewScroll = () => {
     if (!syncScroll.value || suppressPreviewScroll) return
+    if (!canSourceDriveSync(previewRef.value, 'preview')) return
     syncScrollPosition(previewRef.value, cmEditorRef.value, 'editor')
   }
 

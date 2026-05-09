@@ -1,4 +1,5 @@
 import type { ImportDocument, ImportSection } from '@/types'
+import { decodeImportText } from '@/utils/importText'
 
 const headingPattern = /^(#{1,6})\s+(.+?)\s*$/
 
@@ -94,8 +95,9 @@ export function parseMarkdownSections(content: string): { metaTitle: string; sec
   }
 }
 
-export async function parseMarkdownImport(file: File): Promise<ImportDocument> {
-  const content = await file.text()
+async function parseTextDocument(file: File): Promise<ImportDocument> {
+  const bytes = new Uint8Array(await file.arrayBuffer())
+  const content = decodeImportText(bytes)
   const { metaTitle, sections } = parseMarkdownSections(content)
 
   return {
@@ -108,4 +110,8 @@ export async function parseMarkdownImport(file: File): Promise<ImportDocument> {
     warnings: [],
     assets: [],
   }
+}
+
+export async function parseMarkdownImport(file: File): Promise<ImportDocument> {
+  return parseTextDocument(file)
 }

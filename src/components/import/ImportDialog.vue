@@ -34,6 +34,12 @@ const selectedFile = ref<File | null>(null)
 const selectedMode = ref<ImportMode>('newBook')
 const applying = ref(false)
 
+const formatLabelMap: Record<ImportDocument['format'], string> = {
+  markdown: 'Markdown',
+  epub: 'EPUB',
+  pdf: 'PDF',
+}
+
 const modeOptions = computed(() => {
   const options: Array<{ value: ImportMode; label: string; description: string }> = [{
     value: 'newBook',
@@ -60,6 +66,11 @@ const modeOptions = computed(() => {
 })
 
 const warningMessages = computed(() => parsedDocument.value?.warnings ?? [])
+
+const selectedFormatLabel = computed(() => {
+  if (!parsedDocument.value) return '...'
+  return formatLabelMap[parsedDocument.value.format]
+})
 
 const localizedWarnings = computed(() => warningMessages.value.map((warning) => {
   switch (warning.code) {
@@ -179,12 +190,13 @@ const handleApply = async () => {
           </NButton>
           <span v-if="selectedFile" class="import-file-name">{{ selectedFile.name }}</span>
         </div>
+        <div class="import-supported-formats">{{ t('import.supportedFormats') }}</div>
       </section>
 
       <section v-if="selectedFile" class="import-step">
         <div class="import-step-title">{{ t('import.stepFormat') }}</div>
         <div class="import-step-body">
-          <NTag size="small" type="info">{{ parsedDocument?.format || '...' }}</NTag>
+          <NTag size="small" type="info">{{ selectedFormatLabel }}</NTag>
           <span class="import-meta-text">{{ t('import.sourceName', { name: selectedFile.name }) }}</span>
         </div>
       </section>
@@ -275,6 +287,7 @@ const handleApply = async () => {
 }
 
 .import-file-name,
+.import-supported-formats,
 .import-meta-text,
 .import-mode-desc,
 .import-preview-label {

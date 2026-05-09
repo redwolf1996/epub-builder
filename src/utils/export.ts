@@ -1,4 +1,5 @@
 import { db } from '@/db'
+import { replaceAssetUrls } from '@/utils/assets'
 import { parseExportMarkdownTokens, renderExportMarkdown, type MarkdownToken } from '@/utils/markdown'
 import type { Book, BookMeta, Chapter } from '@/types'
 
@@ -223,7 +224,7 @@ export function validateExportPayload(bookTitle: string, chapters: Chapter[]): E
   }
 }
 
-export function buildMarkdownExport(meta: BookMeta, chapters: Chapter[]): string {
+export async function buildMarkdownExport(meta: BookMeta, chapters: Chapter[]): Promise<string> {
   const flattened = flattenChapters(chapters)
   const lines: string[] = []
 
@@ -236,7 +237,8 @@ export function buildMarkdownExport(meta: BookMeta, chapters: Chapter[]): string
     const heading = `${'#'.repeat(level)} ${chapter.title.trim()}`
     lines.push(heading, '')
 
-    const content = deduplicateMarkdownHeading(chapter.content, chapter.title)
+    const resolvedContent = await replaceAssetUrls(chapter.content, 'export')
+    const content = deduplicateMarkdownHeading(resolvedContent, chapter.title)
     if (content) {
       lines.push(content, '')
     }
@@ -500,13 +502,15 @@ export function buildPdfOutlineItems(chapters: Chapter[]): PdfOutlineItem[] {
   }))
 }
 
-export function buildPrintHtml(meta: BookMeta, chapters: Chapter[]): string {
+export async function buildPrintHtml(meta: BookMeta, chapters: Chapter[]): Promise<string> {
   const flattened = flattenChapters(chapters)
-  const sectionHtml = flattened.map((chapter) => {
+  const renderedSections = await Promise.all(flattened.map(async (chapter) => {
     const anchor = `chapter-${chapter.id}`
-    const content = buildChapterBody(chapter.title, renderExportMarkdown(chapter.content), anchor)
+    const resolvedContent = await replaceAssetUrls(chapter.content, 'export')
+    const content = buildChapterBody(chapter.title, renderExportMarkdown(resolvedContent), anchor)
     return `<article class="chapter depth-${chapter.depth}">${content}</article>`
-  }).join('')
+  }))
+  const sectionHtml = renderedSections.join('')
 
   const tocHtml = flattened.length > 0
     ? `<section class="toc"><h2>目录</h2><ol>${buildTocItems(flattened)}</ol></section>`

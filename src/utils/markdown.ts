@@ -141,7 +141,7 @@ function sanitizeUrl(value: string, tagName: string, attrName: 'href' | 'src'): 
   if (attrName === 'href' && ['http', 'https', 'mailto', 'tel'].includes(scheme)) {
     return trimmed
   }
-  if (attrName === 'src' && ['http', 'https'].includes(scheme)) {
+  if (attrName === 'src' && ['http', 'https', 'asset', 'file'].includes(scheme)) {
     return trimmed
   }
 

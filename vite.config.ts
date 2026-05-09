@@ -20,7 +20,7 @@ export default defineConfig({
   plugins: [vue(), unocss()],
   server: {
     host: '127.0.0.1',
-    port: 3401,
+    port: 7777,
     strictPort: true,
   },
   resolve: {

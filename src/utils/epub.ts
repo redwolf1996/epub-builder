@@ -1,4 +1,5 @@
 import { renderExportMarkdown } from '@/utils/markdown'
+import { replaceAssetUrls } from '@/utils/assets'
 import {
   buildChapterBody,
   deduplicateChapterTitle,
@@ -88,11 +89,12 @@ function normalizeAuthor(author: string): string[] {
 
 export { deduplicateChapterTitle, buildChapterBody, flattenChapters, isTauri }
 
-export function buildExportChapters(chapters: Chapter[]): ExportChapter[] {
-  return flattenChapters(chapters).map((chapter, index) => {
+export async function buildExportChapters(chapters: Chapter[]): Promise<ExportChapter[]> {
+  return Promise.all(flattenChapters(chapters).map(async (chapter, index) => {
     const anchor = `chapter-${chapter.id}`
     const filename = `${index + 1}-${chapter.id}.xhtml`
-    const renderedHtml = renderExportMarkdown(chapter.content)
+    const resolvedContent = await replaceAssetUrls(chapter.content, 'export')
+    const renderedHtml = renderExportMarkdown(resolvedContent)
 
     return {
       id: chapter.id,
@@ -104,7 +106,7 @@ export function buildExportChapters(chapters: Chapter[]): ExportChapter[] {
       anchor,
       tocHref: `${filename}#${anchor}`,
     }
-  })
+  }))
 }
 
 export function buildExportChapterTree(chapters: ExportChapter[]): ExportChapterNode[] {
@@ -226,7 +228,7 @@ export async function exportToEpub(bookId: string): Promise<Blob> {
 
   if (allChapters.length === 0) throw new Error('No chapters to export')
 
-  const exportChapters = buildExportChapters(allChapters)
+  const exportChapters = await buildExportChapters(allChapters)
   validateExportChapters(exportChapters)
 
   const chapterTree = buildExportChapterTree(exportChapters)

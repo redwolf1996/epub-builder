@@ -5,7 +5,7 @@
   "identifier": "com.epub-builder",
   "build": {
     "frontendDist": "../dist",
-    "devUrl": "http://127.0.0.1:3401",
+    "devUrl": "http://127.0.0.1:7777",
     "beforeDevCommand": "pnpm dev",
     "beforeBuildCommand": "pnpm build"
   },

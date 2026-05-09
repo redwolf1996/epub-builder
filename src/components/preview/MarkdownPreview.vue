@@ -1,17 +1,20 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
+import { replaceAssetUrls } from '@/utils/assets'
 import { renderMarkdown } from '@/utils/markdown'
 import type { LineAnchor, ScrollSnapshot } from '@/composables/useScrollSync'
 
 const props = defineProps<{
   content: string
+  bookId?: string
 }>()
 
 const emit = defineEmits<{
   scroll: []
 }>()
 
-const html = computed(() => renderMarkdown(props.content))
+const resolvedContent = ref(props.content)
+const html = computed(() => renderMarkdown(resolvedContent.value))
 const previewRef = ref<HTMLElement | null>(null)
 const dataLineElements = ref<HTMLElement[]>([])
 
@@ -115,6 +118,10 @@ onBeforeUnmount(() => {
 watch(html, () => {
   void rebuildDataLineElements()
 })
+
+watch(() => [props.content, props.bookId] as const, async ([content]) => {
+  resolvedContent.value = await replaceAssetUrls(content, 'preview')
+}, { immediate: true })
 
 defineExpose({
   scrollToLine,

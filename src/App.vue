@@ -351,10 +351,6 @@
     })
   }
 
-  const handleCreateBook = () => {
-    navigateToCreateBook()
-  }
-
   const handleBackToShelf = () => {
     void bookStore.initBookList()
     router.push('/')
@@ -380,12 +376,6 @@
               </template>
             </div>
             <div class="flex items-center gap-2">
-              <NButton v-if="isHome" type="primary" size="small" @click="handleCreateBook">
-                <template #icon>
-                  <span class="i-carbon-add" />
-                </template>
-                {{ t('app.createBook') }}
-              </NButton>
               <button
                 v-if="isEditor"
                 type="button"

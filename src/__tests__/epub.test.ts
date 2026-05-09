@@ -84,8 +84,8 @@ describe('buildChapterBody', () => {
 })
 
 describe('export chapter model', () => {
-  it('builds chapters with real titles and explicit TOC hrefs', () => {
-    const result = buildExportChapters(chapters)
+  it('builds chapters with real titles and explicit TOC hrefs', async () => {
+    const result = await buildExportChapters(chapters)
     expect(result.map((chapter) => chapter.title)).toEqual(['Root 1', 'Child 1', 'Child 2', 'Root 2'])
     expect(result[0].tocHref).toBe(`${result[0].filename}#chapter-root-1`)
     expect(result[1].depth).toBe(1)
@@ -93,29 +93,29 @@ describe('export chapter model', () => {
     expect(result[2].content).toContain('>Child 2</h1>')
   })
 
-  it('builds a tree that preserves nested chapter relationships', () => {
-    const result = buildExportChapterTree(buildExportChapters(chapters))
+  it('builds a tree that preserves nested chapter relationships', async () => {
+    const result = buildExportChapterTree(await buildExportChapters(chapters))
     expect(result).toHaveLength(2)
     expect(result[0].children.map((child) => child.title)).toEqual(['Child 1', 'Child 2'])
   })
 
-  it('reports the actual maximum TOC depth', () => {
-    const result = buildExportChapters(chapters)
+  it('reports the actual maximum TOC depth', async () => {
+    const result = await buildExportChapters(chapters)
     expect(getMaxTocDepth(result)).toBe(2)
   })
 })
 
 describe('TOC rendering', () => {
-  it('renders nested ol/li markup for toc.xhtml', () => {
-    const tree = buildExportChapterTree(buildExportChapters(chapters))
+  it('renders nested ol/li markup for toc.xhtml', async () => {
+    const tree = buildExportChapterTree(await buildExportChapters(chapters))
     const toc = buildTocXhtmlBody(tree)
     expect(toc).toContain('<ol>')
     expect(toc).toContain('Child 1')
     expect(toc).toContain(`${tree[0].children[0].filename}#chapter-child-1`)
   })
 
-  it('renders nested navPoint markup for toc.ncx with anchored targets', () => {
-    const tree = buildExportChapterTree(buildExportChapters(chapters))
+  it('renders nested navPoint markup for toc.ncx with anchored targets', async () => {
+    const tree = buildExportChapterTree(await buildExportChapters(chapters))
     const ncx = buildTocNcxBody(tree)
     expect(ncx).toContain('playOrder="1"')
     expect(ncx).toContain('<navPoint id="nav-root-1"')

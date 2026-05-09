@@ -16,6 +16,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   export: [format: ExportFormat]
+  import: []
   aiOcr: []
   openDevtools: []
   fullscreen: []
@@ -320,6 +321,11 @@ const handleExportSelect = (key: string) => {
     </div>
 
     <div class="flex-1" />
+
+    <NButton size="small" secondary :disabled="props.exporting || props.ocrProcessing" @click="emit('import')">
+      <span class="i-carbon-upload" :class="{ 'mr-1': !props.compact }" />
+      <span v-if="!props.compact">{{ t('editor.importFile') }}</span>
+    </NButton>
 
     <NDropdown :options="exportOptions" trigger="click" placement="bottom-end" @select="handleExportSelect">
       <NButton type="primary" size="small" :loading="props.exporting" :disabled="props.ocrProcessing">

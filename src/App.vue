@@ -17,12 +17,27 @@
   const { t, locale } = useI18n()
   const MENU_VISIBLE_KEY = 'epub-builder-menu-visible'
   type NativeMenuHandles = {
+    fileMenu: import('@tauri-apps/api/menu').Submenu
     editMenu: import('@tauri-apps/api/menu').Submenu
+    viewMenu: import('@tauri-apps/api/menu').Submenu
+    helpMenu: import('@tauri-apps/api/menu').Submenu
+    newBookItem: import('@tauri-apps/api/menu').MenuItem
+    quitItem: import('@tauri-apps/api/menu').PredefinedMenuItem
+    undoItem: import('@tauri-apps/api/menu').PredefinedMenuItem
+    redoItem: import('@tauri-apps/api/menu').PredefinedMenuItem
+    cutItem: import('@tauri-apps/api/menu').PredefinedMenuItem
+    copyItem: import('@tauri-apps/api/menu').PredefinedMenuItem
+    pasteItem: import('@tauri-apps/api/menu').PredefinedMenuItem
+    selectAllItem: import('@tauri-apps/api/menu').PredefinedMenuItem
     exportEpubItem: import('@tauri-apps/api/menu').MenuItem
     exportPdfItem: import('@tauri-apps/api/menu').MenuItem
     exportMarkdownItem: import('@tauri-apps/api/menu').MenuItem
     exportWordItem: import('@tauri-apps/api/menu').MenuItem
+    findReplaceItem: import('@tauri-apps/api/menu').MenuItem
+    toggleThemeItem: import('@tauri-apps/api/menu').MenuItem
+    appFullscreenItem: import('@tauri-apps/api/menu').MenuItem
     toggleScrollSyncItem: import('@tauri-apps/api/menu').MenuItem
+    aboutItem: import('@tauri-apps/api/menu').MenuItem
   }
 
   const isHome = computed(() => route.path === '/')
@@ -76,65 +91,119 @@
       const exportPdfItem = await MenuItem.new({ id: 'export_pdf', text: t('menu.exportPdf') })
       const exportMarkdownItem = await MenuItem.new({ id: 'export_markdown', text: t('menu.exportMarkdown') })
       const exportWordItem = await MenuItem.new({ id: 'export_word', text: t('menu.exportWord') })
+      const newBookItem = await MenuItem.new({ id: 'new_book', text: t('menu.newBook'), accelerator: 'Ctrl+N' })
+      const quitItem = await PredefinedMenuItem.new({ item: 'Quit', text: t('menu.quit') })
       const fileMenu = await Submenu.new({
         text: t('menu.file'),
         items: [
-          await MenuItem.new({ id: 'new_book', text: t('menu.newBook'), accelerator: 'Ctrl+N' }),
+          newBookItem,
           await PredefinedMenuItem.new({ item: 'Separator' }),
           exportEpubItem,
           exportPdfItem,
           exportMarkdownItem,
           exportWordItem,
           await PredefinedMenuItem.new({ item: 'Separator' }),
-          await PredefinedMenuItem.new({ item: 'Quit', text: t('menu.quit') }),
+          quitItem,
         ],
       })
 
       const findReplaceItem = await MenuItem.new({ id: 'find_replace', text: t('menu.findReplace'), accelerator: 'Ctrl+F' })
+      const undoItem = await PredefinedMenuItem.new({ item: 'Undo', text: t('menu.undo') })
+      const redoItem = await PredefinedMenuItem.new({ item: 'Redo', text: t('menu.redo') })
+      const cutItem = await PredefinedMenuItem.new({ item: 'Cut', text: t('menu.cut') })
+      const copyItem = await PredefinedMenuItem.new({ item: 'Copy', text: t('menu.copy') })
+      const pasteItem = await PredefinedMenuItem.new({ item: 'Paste', text: t('menu.paste') })
+      const selectAllItem = await PredefinedMenuItem.new({ item: 'SelectAll', text: t('menu.selectAll') })
       const editMenu = await Submenu.new({
         text: t('menu.edit'),
         items: [
-          await PredefinedMenuItem.new({ item: 'Undo', text: t('menu.undo') }),
-          await PredefinedMenuItem.new({ item: 'Redo', text: t('menu.redo') }),
+          undoItem,
+          redoItem,
           await PredefinedMenuItem.new({ item: 'Separator' }),
-          await PredefinedMenuItem.new({ item: 'Cut', text: t('menu.cut') }),
-          await PredefinedMenuItem.new({ item: 'Copy', text: t('menu.copy') }),
-          await PredefinedMenuItem.new({ item: 'Paste', text: t('menu.paste') }),
-          await PredefinedMenuItem.new({ item: 'SelectAll', text: t('menu.selectAll') }),
+          cutItem,
+          copyItem,
+          pasteItem,
+          selectAllItem,
           await PredefinedMenuItem.new({ item: 'Separator' }),
           findReplaceItem,
         ],
       })
 
       const toggleScrollSyncItem = await MenuItem.new({ id: 'toggle_scroll_sync', text: t('menu.toggleScrollSync') })
+      const toggleThemeItem = await MenuItem.new({ id: 'toggle_theme', text: t('menu.toggleTheme') })
+      const appFullscreenItem = await MenuItem.new({ id: 'app_fullscreen', text: t('menu.appFullscreen'), accelerator: 'Ctrl+Enter' })
       const viewMenu = await Submenu.new({
         text: t('menu.view'),
         items: [
-          await MenuItem.new({ id: 'toggle_theme', text: t('menu.toggleTheme') }),
-          await MenuItem.new({ id: 'app_fullscreen', text: t('menu.appFullscreen'), accelerator: 'Ctrl+Enter' }),
+          toggleThemeItem,
+          appFullscreenItem,
           toggleScrollSyncItem,
         ],
       })
 
+      const aboutItem = await MenuItem.new({ id: 'about', text: t('menu.about') })
       const helpMenu = await Submenu.new({
         text: t('menu.help'),
         items: [
-          await MenuItem.new({ id: 'about', text: t('menu.about') }),
+          aboutItem,
         ],
       })
 
       const menu = await Menu.new({ items: [fileMenu, editMenu, viewMenu, helpMenu] })
       await menu.setAsAppMenu()
       nativeMenuHandles = {
+        fileMenu,
         editMenu,
+        viewMenu,
+        helpMenu,
+        newBookItem,
+        quitItem,
+        undoItem,
+        redoItem,
+        cutItem,
+        copyItem,
+        pasteItem,
+        selectAllItem,
         exportEpubItem,
         exportPdfItem,
         exportMarkdownItem,
         exportWordItem,
+        findReplaceItem,
+        toggleThemeItem,
+        appFullscreenItem,
         toggleScrollSyncItem,
+        aboutItem,
       }
       await syncNativeMenuState()
     } catch (e) { console.error('buildNativeMenu failed', e) }
+  }
+
+  async function updateNativeMenuTexts() {
+    if (!nativeMenuHandles) return
+
+    await Promise.all([
+      nativeMenuHandles.fileMenu.setText(t('menu.file')),
+      nativeMenuHandles.editMenu.setText(t('menu.edit')),
+      nativeMenuHandles.viewMenu.setText(t('menu.view')),
+      nativeMenuHandles.helpMenu.setText(t('menu.help')),
+      nativeMenuHandles.newBookItem.setText(t('menu.newBook')),
+      nativeMenuHandles.quitItem.setText(t('menu.quit')),
+      nativeMenuHandles.undoItem.setText(t('menu.undo')),
+      nativeMenuHandles.redoItem.setText(t('menu.redo')),
+      nativeMenuHandles.cutItem.setText(t('menu.cut')),
+      nativeMenuHandles.copyItem.setText(t('menu.copy')),
+      nativeMenuHandles.pasteItem.setText(t('menu.paste')),
+      nativeMenuHandles.selectAllItem.setText(t('menu.selectAll')),
+      nativeMenuHandles.exportEpubItem.setText(t('menu.exportEpub')),
+      nativeMenuHandles.exportPdfItem.setText(t('menu.exportPdf')),
+      nativeMenuHandles.exportMarkdownItem.setText(t('menu.exportMarkdown')),
+      nativeMenuHandles.exportWordItem.setText(t('menu.exportWord')),
+      nativeMenuHandles.findReplaceItem.setText(t('menu.findReplace')),
+      nativeMenuHandles.toggleThemeItem.setText(t('menu.toggleTheme')),
+      nativeMenuHandles.appFullscreenItem.setText(t('menu.appFullscreen')),
+      nativeMenuHandles.toggleScrollSyncItem.setText(t('menu.toggleScrollSync')),
+      nativeMenuHandles.aboutItem.setText(t('menu.about')),
+    ])
   }
 
   async function syncNativeMenuState() {
@@ -219,11 +288,7 @@
   // 语言切换时重建菜单
   watch(locale, () => {
     if (!isTauri()) return
-    buildNativeMenu().then(() => {
-      if (!menuVisible) {
-        applyMenuVisibility(false)
-      }
-    })
+    void updateNativeMenuTexts()
   })
 
   watch(() => route.path, () => {
@@ -371,19 +436,19 @@
     <NMessageProvider>
       <NDialogProvider>
         <div class="app-shell h-screen flex flex-col">
-          <header class="app-header flex items-center justify-between px-4 py-2 shrink-0">
-            <div class="flex items-center gap-2">
+          <header class="app-header flex items-center justify-between gap-3 px-4 py-2 shrink-0">
+            <div class="app-header-main flex min-w-0 items-center gap-2">
               <span class="i-carbon-book text-lg" style="color: var(--primary)" />
-              <span class="font-bold text-sm" style="color: var(--text-primary)">{{ t('app.title') }}</span>
+              <span class="shrink-0 font-bold text-sm" style="color: var(--text-primary)">{{ t('app.title') }}</span>
               <template v-if="bookTitle">
-                <span class="i-carbon-chevron-right text-xs" style="color: var(--text-muted)" />
+                <span class="shrink-0 i-carbon-chevron-right text-xs" style="color: var(--text-muted)" />
                 <span class="book-title-tag">
                   <span class="i-carbon-document text-xs" />
-                  <span>{{ bookTitle }}</span>
+                  <span class="book-title-text">{{ bookTitle }}</span>
                 </span>
               </template>
             </div>
-            <div class="flex items-center gap-2">
+            <div class="app-header-actions">
               <button
                 v-if="isEditor"
                 type="button"
@@ -393,7 +458,7 @@
                 <span class="i-carbon-arrow-left text-sm" />
                 <span>{{ t('editor.backToShelf') }}</span>
               </button>
-              <NButton quaternary size="tiny" @click="toggleLocale">
+              <NButton quaternary size="tiny" class="app-locale-btn" @click="toggleLocale">
                 <span class="text-xs font-bold">{{ locale === 'zh-CN' ? 'EN' : '中' }}</span>
               </NButton>
               <ThemeSwitcher />
@@ -445,6 +510,8 @@
     gap: 4px;
     height: 24px;
     box-sizing: border-box;
+    min-width: 0;
+    flex-shrink: 1;
     font-size: 0.8125rem;
     font-weight: 700;
     color: var(--primary);
@@ -454,8 +521,23 @@
     border: 1px solid var(--primary);
     max-width: 200px;
     overflow: hidden;
-    text-overflow: ellipsis;
     white-space: nowrap;
+    transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+  }
+
+  .book-title-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .app-header-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    flex: 0 0 auto;
+    min-width: fit-content;
   }
 
   .app-back-btn {
@@ -478,10 +560,28 @@
     transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
   }
 
+  .app-locale-btn {
+    flex: 0 0 auto;
+  }
+
+  .app-locale-btn :deep(.n-button__content) {
+    transition: opacity 0.18s ease;
+  }
+
   .app-back-btn:hover {
     color: var(--primary);
     background: var(--bg-active);
     border-color: var(--border-light);
+  }
+
+  @media (max-width: 767px) {
+    .app-header-actions {
+      gap: 6px;
+    }
+
+    .book-title-tag {
+      max-width: 140px;
+    }
   }
 
   .page-fade-enter-active,

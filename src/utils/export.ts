@@ -3,7 +3,7 @@ import { replaceAssetUrls } from '@/utils/assets'
 import { parseExportMarkdownTokens, renderExportMarkdown, type MarkdownToken } from '@/utils/markdown'
 import type { Book, BookMeta, Chapter } from '@/types'
 
-export type ExportFormat = 'epub' | 'pdf' | 'markdown'
+export type ExportFormat = 'epub' | 'pdf' | 'markdown' | 'docx'
 
 export type ExportValidationResult = {
   blockingErrors: string[]

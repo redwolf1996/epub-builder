@@ -21,6 +21,7 @@ import {
 import { parseEpubImport } from '@/utils/importEpub'
 import { parseMarkdownImport } from '@/utils/importMarkdown'
 import { parsePdfImport } from '@/utils/importPdf'
+import { parseWordImport } from '@/utils/importWord'
 
 type ParseImportResult = {
   document: ImportDocument
@@ -41,6 +42,8 @@ function detectImportFormat(file: File): ImportFormat {
       return 'epub'
     case 'pdf':
       return 'pdf'
+    case 'docx':
+      return 'docx'
     default:
       throw new Error(`Unsupported import format: ${ext || 'unknown'}`)
   }
@@ -167,7 +170,9 @@ export function useImport() {
         ? await parseMarkdownImport(file)
         : format === 'epub'
           ? await parseEpubImport(file)
-          : await parsePdfImport(file)
+          : format === 'pdf'
+            ? await parsePdfImport(file)
+            : await parseWordImport(file)
 
       parsedDocument.value = document
       return { document, format }

@@ -34,7 +34,7 @@ export interface BookAsset {
   createdAt: number
 }
 
-export type ImportFormat = 'markdown' | 'epub' | 'pdf'
+export type ImportFormat = 'markdown' | 'epub' | 'pdf' | 'docx'
 
 export type ImportMode = 'newBook' | 'appendToCurrentChapter' | 'insertAsSiblingChapters'
 

@@ -1,5 +1,6 @@
 import { ref } from 'vue'
 import { downloadEpub, exportToEpub } from '@/utils/epub'
+import { buildDocxExport } from '@/utils/exportDocx'
 import {
   buildPdfOutlineItems,
   buildMarkdownExport,
@@ -7,6 +8,7 @@ import {
   getExportPayload,
   isTauri,
   openPrintPreview,
+  saveBlobFile,
   savePdfFile,
   saveTextFile,
   type ExportFormat,
@@ -46,6 +48,11 @@ export function useExport() {
           }
 
           return await openPrintPreview(html, book.meta.title || filename)
+        }
+        case 'docx': {
+          const { book, chapters } = await getExportPayload(bookId)
+          const blob = await buildDocxExport(book.meta, chapters)
+          return await saveBlobFile(blob, filename, 'docx', 'Word Document')
         }
       }
     } catch (e) {

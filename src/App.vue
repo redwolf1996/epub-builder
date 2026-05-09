@@ -21,6 +21,7 @@
     exportEpubItem: import('@tauri-apps/api/menu').MenuItem
     exportPdfItem: import('@tauri-apps/api/menu').MenuItem
     exportMarkdownItem: import('@tauri-apps/api/menu').MenuItem
+    exportWordItem: import('@tauri-apps/api/menu').MenuItem
     toggleScrollSyncItem: import('@tauri-apps/api/menu').MenuItem
   }
 
@@ -74,6 +75,7 @@
       const exportEpubItem = await MenuItem.new({ id: 'export_epub', text: t('menu.exportEpub'), accelerator: 'Ctrl+E' })
       const exportPdfItem = await MenuItem.new({ id: 'export_pdf', text: t('menu.exportPdf') })
       const exportMarkdownItem = await MenuItem.new({ id: 'export_markdown', text: t('menu.exportMarkdown') })
+      const exportWordItem = await MenuItem.new({ id: 'export_word', text: t('menu.exportWord') })
       const fileMenu = await Submenu.new({
         text: t('menu.file'),
         items: [
@@ -82,6 +84,7 @@
           exportEpubItem,
           exportPdfItem,
           exportMarkdownItem,
+          exportWordItem,
           await PredefinedMenuItem.new({ item: 'Separator' }),
           await PredefinedMenuItem.new({ item: 'Quit', text: t('menu.quit') }),
         ],
@@ -127,6 +130,7 @@
         exportEpubItem,
         exportPdfItem,
         exportMarkdownItem,
+        exportWordItem,
         toggleScrollSyncItem,
       }
       await syncNativeMenuState()
@@ -142,6 +146,7 @@
       nativeMenuHandles.exportEpubItem.setEnabled(editorOnly),
       nativeMenuHandles.exportPdfItem.setEnabled(editorOnly),
       nativeMenuHandles.exportMarkdownItem.setEnabled(editorOnly),
+      nativeMenuHandles.exportWordItem.setEnabled(editorOnly),
       nativeMenuHandles.toggleScrollSyncItem.setEnabled(editorOnly),
     ])
   }
@@ -180,6 +185,9 @@
             break
           case 'export_markdown':
             window.dispatchEvent(new CustomEvent('menu-export', { detail: 'markdown' }))
+            break
+          case 'export_word':
+            window.dispatchEvent(new CustomEvent('menu-export', { detail: 'docx' }))
             break
           case 'find_replace':
             window.dispatchEvent(new CustomEvent('menu-find-replace'))

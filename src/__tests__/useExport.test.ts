@@ -9,10 +9,12 @@ const mocks = vi.hoisted(() => ({
   buildPdfOutlineItems: vi.fn(),
   buildMarkdownExport: vi.fn(),
   saveTextFile: vi.fn(),
+  saveBlobFile: vi.fn(),
   savePdfFile: vi.fn(),
   buildPrintHtml: vi.fn(),
   openPrintPreview: vi.fn(),
   isTauri: vi.fn(),
+  buildDocxExport: vi.fn(),
 }))
 
 vi.mock('@/utils/epub', () => ({
@@ -25,11 +27,16 @@ vi.mock('@/utils/export', () => ({
   getExportPayload: mocks.getExportPayload,
   buildPdfOutlineItems: mocks.buildPdfOutlineItems,
   buildMarkdownExport: mocks.buildMarkdownExport,
+  saveBlobFile: mocks.saveBlobFile,
   saveTextFile: mocks.saveTextFile,
   savePdfFile: mocks.savePdfFile,
   buildPrintHtml: mocks.buildPrintHtml,
   openPrintPreview: mocks.openPrintPreview,
   isTauri: mocks.isTauri,
+}))
+
+vi.mock('@/utils/exportDocx', () => ({
+  buildDocxExport: mocks.buildDocxExport,
 }))
 
 describe('useExport', () => {
@@ -40,6 +47,8 @@ describe('useExport', () => {
     mocks.getExportPayload.mockReset()
     mocks.buildPdfOutlineItems.mockReset()
     mocks.buildMarkdownExport.mockReset()
+    mocks.buildDocxExport.mockReset()
+    mocks.saveBlobFile.mockReset()
     mocks.saveTextFile.mockReset()
     mocks.savePdfFile.mockReset()
     mocks.buildPrintHtml.mockReset()
@@ -98,6 +107,24 @@ describe('useExport', () => {
     expect(mocks.buildPdfOutlineItems).toHaveBeenCalledWith(payload.chapters)
     expect(mocks.savePdfFile).toHaveBeenCalledWith('<html></html>', 'Demo', 'demo', [{ title: 'Demo', anchor: 'chapter-1', depth: 0 }])
     expect(mocks.openPrintPreview).not.toHaveBeenCalled()
+  })
+
+  it('exports docx through blob save flow', async () => {
+    const payload = {
+      book: { meta: { title: 'Demo' } },
+      chapters: [],
+    }
+    const blob = new Blob(['docx'])
+    mocks.getExportPayload.mockResolvedValue(payload)
+    mocks.buildDocxExport.mockResolvedValue(blob)
+    mocks.saveBlobFile.mockResolvedValue({ status: 'saved', filePath: 'demo.docx' })
+
+    const { handleExport } = useExport()
+    const result = await handleExport('docx', 'book-1', 'demo')
+
+    expect(result).toEqual({ status: 'saved', filePath: 'demo.docx' })
+    expect(mocks.buildDocxExport).toHaveBeenCalledWith(payload.book.meta, payload.chapters)
+    expect(mocks.saveBlobFile).toHaveBeenCalledWith(blob, 'demo', 'docx', 'Word Document')
   })
 
   it('opens the print view for pdf export in browser mode', async () => {

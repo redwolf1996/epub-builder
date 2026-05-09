@@ -38,6 +38,7 @@ const formatLabelMap: Record<ImportDocument['format'], string> = {
   markdown: 'Markdown',
   epub: 'EPUB',
   pdf: 'PDF',
+  docx: 'Word (.docx)',
 }
 
 const modeOptions = computed(() => {
@@ -78,6 +79,8 @@ const localizedWarnings = computed(() => warningMessages.value.map((warning) => 
       return t('import.warningEmptyEpub')
     case 'pdf-low-text':
       return t('import.warningPdfLowText')
+    case 'word-import-warning':
+      return t('import.warningWordUnsupported')
     default:
       return warning.message
   }
@@ -100,6 +103,9 @@ const importingDescription = computed(() => {
   }
   if (ext === 'pdf') {
     return t('import.pdfParsing')
+  }
+  if (ext === 'docx') {
+    return t('import.wordParsing')
   }
 
   return t('import.genericParsing')
@@ -177,7 +183,7 @@ const handleApply = async () => {
         ref="fileInputRef"
         class="hidden"
         type="file"
-        accept=".md,.markdown,.epub,.pdf"
+        accept=".md,.markdown,.epub,.pdf,.docx"
         @change="handleFileChange"
       >
 

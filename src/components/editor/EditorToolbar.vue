@@ -50,6 +50,7 @@ const exportOptions = computed(() => ([
   { label: t('editor.exportEpub'), key: 'epub', icon: optionIcon('i-carbon-book') },
   { label: t('editor.exportPdf'), key: 'pdf', icon: optionIcon('i-carbon-document-pdf') },
   { label: t('editor.exportMarkdown'), key: 'markdown', icon: optionIcon('i-carbon-document') },
+  { label: t('editor.exportWord'), key: 'docx', icon: optionIcon('i-carbon-document-word-processor') },
 ]))
 
 const moreActions = computed<Array<{ key: string; label: string; icon: () => ReturnType<typeof h> }>>(() => ([
@@ -133,7 +134,7 @@ const handleMoreSelect = (key: string) => {
 const withShortcut = (label: string, shortcut: string) => `${label} (${shortcut})`
 
 const handleExportSelect = (key: string) => {
-  if (key === 'epub' || key === 'pdf' || key === 'markdown') {
+  if (key === 'epub' || key === 'pdf' || key === 'markdown' || key === 'docx') {
     emit('export', key)
   }
 }

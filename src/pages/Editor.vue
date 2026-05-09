@@ -516,6 +516,8 @@
     switch (format) {
       case 'markdown':
         return t('export.markdownSaved')
+      case 'docx':
+        return t('export.wordSaved')
       case 'pdf':
         return isTauri() ? t('export.pdfSaved') : t('export.pdfOpened')
       default:
@@ -527,6 +529,8 @@
     switch (format) {
       case 'markdown':
         return t('export.markdownCancelled')
+      case 'docx':
+        return t('export.wordCancelled')
       case 'pdf':
         return isTauri() ? t('epub.exportCancelled') : t('export.pdfCancelled')
       default:
@@ -538,6 +542,8 @@
     switch (format) {
       case 'markdown':
         return t('editor.exportMarkdown')
+      case 'docx':
+        return t('editor.exportWord')
       case 'pdf':
         return t('editor.exportPdf')
       default:
@@ -594,7 +600,7 @@
 
   const handleMenuExport = (event: Event) => {
     const format = (event as CustomEvent<ExportFormat>).detail
-    if (format === 'epub' || format === 'pdf' || format === 'markdown') {
+    if (format === 'epub' || format === 'pdf' || format === 'markdown' || format === 'docx') {
       void handleExport(format)
     }
   }

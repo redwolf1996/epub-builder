@@ -18,10 +18,7 @@ import {
   decodeEpubAssetPlaceholder,
   toAssetUrl,
 } from '@/utils/assets'
-import { parseEpubImport } from '@/utils/importEpub'
 import { parseMarkdownImport } from '@/utils/importMarkdown'
-import { parsePdfImport } from '@/utils/importPdf'
-import { parseWordImport } from '@/utils/importWord'
 
 type ParseImportResult = {
   document: ImportDocument
@@ -169,10 +166,10 @@ export function useImport() {
       const document = format === 'markdown'
         ? await parseMarkdownImport(file)
         : format === 'epub'
-          ? await parseEpubImport(file)
+          ? await import('@/utils/importEpub').then(({ parseEpubImport }) => parseEpubImport(file))
           : format === 'pdf'
-            ? await parsePdfImport(file)
-            : await parseWordImport(file)
+            ? await import('@/utils/importPdf').then(({ parsePdfImport }) => parsePdfImport(file))
+            : await import('@/utils/importWord').then(({ parseWordImport }) => parseWordImport(file))
 
       parsedDocument.value = document
       return { document, format }

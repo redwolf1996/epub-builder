@@ -7,6 +7,15 @@ vi.mock('@/utils/assets', () => ({
   replaceAssetUrls,
 }))
 
+type ReadableZipEntry = {
+  filename: string
+  getData: (writer: TextWriter) => Promise<string>
+}
+
+function isReadableZipEntry(entry: unknown): entry is ReadableZipEntry {
+  return typeof entry === 'object' && entry !== null && 'getData' in entry
+}
+
 describe('buildDocxExport', () => {
   afterEach(() => {
     replaceAssetUrls.mockReset()
@@ -49,11 +58,15 @@ describe('buildDocxExport', () => {
     const documentEntry = entries.find((entry) => entry.filename === 'word/document.xml')
     const relsEntry = entries.find((entry) => entry.filename === 'word/_rels/document.xml.rels')
 
-    expect(documentEntry).toBeDefined()
-    expect(relsEntry).toBeDefined()
+    expect(isReadableZipEntry(documentEntry)).toBe(true)
+    expect(isReadableZipEntry(relsEntry)).toBe(true)
 
-    const documentXml = await documentEntry!.getData!(new TextWriter())
-    const relsXml = await relsEntry!.getData!(new TextWriter())
+    if (!isReadableZipEntry(documentEntry) || !isReadableZipEntry(relsEntry)) {
+      throw new Error('Expected readable zip entries for generated docx files')
+    }
+
+    const documentXml = await documentEntry.getData(new TextWriter())
+    const relsXml = await relsEntry.getData(new TextWriter())
 
     expect(documentXml).toContain('Demo Book')
     expect(documentXml).toContain('Alice')

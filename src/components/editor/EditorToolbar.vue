@@ -40,6 +40,7 @@ const editorRef = defineModel<EditorActions | null>('editorRef', { required: fal
 const showHelp = ref(false)
 const showMore = ref(false)
 const { t } = useI18n()
+const showDevtoolsAction = import.meta.env.DEV && isTauri()
 
 const optionIcon = (iconClass: string, style?: string) => () => h('span', {
   class: `${iconClass} text-sm`,
@@ -57,7 +58,7 @@ const moreActions = computed<Array<{ key: string; label: string; icon: () => Ret
   { key: 'inlineCode', label: t('toolbar.inlineCode'), icon: optionIcon('i-carbon-code') },
   { key: 'codeBlock', label: t('toolbar.codeBlock'), icon: optionIcon('i-carbon-terminal') },
   { key: 'link', label: t('toolbar.link'), icon: optionIcon('i-carbon-link') },
-  ...(isTauri() ? [{ key: 'devtools', label: t('toolbar.devtools'), icon: optionIcon('i-carbon-development') }] : []),
+  ...(showDevtoolsAction ? [{ key: 'devtools', label: t('toolbar.devtools'), icon: optionIcon('i-carbon-development') }] : []),
 ]))
 
 const insertHeading = () => {

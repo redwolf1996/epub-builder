@@ -14,8 +14,9 @@ import {
   useMessage,
 } from 'naive-ui'
 import type { SelectOption } from 'naive-ui'
+import ImportDialog from '@/components/import/ImportDialog.vue'
 import { useBookStore } from '@/stores/book'
-import type { Book } from '@/types'
+import type { ApplyImportResult, Book, ImportDocument, ImportMode } from '@/types'
 
 const router = useRouter()
 const route = useRoute()
@@ -24,6 +25,7 @@ const message = useMessage()
 const { t } = useI18n()
 
 const showModal = ref(false)
+const showImportModal = ref(false)
 const newBookTitle = ref('')
 const searchQuery = ref('')
 const sortBy = ref<'updatedAt' | 'createdAt' | 'title'>('updatedAt')
@@ -134,6 +136,12 @@ const handleOpenBook = (id: string) => {
 const handleSettings = (id: string) => {
   router.push(`/settings/${id}`)
 }
+
+const handleImportApplied = async (payload: { result: ApplyImportResult; mode: ImportMode; document: ImportDocument }) => {
+  await refreshBookList()
+  message.success(t('import.success'))
+  router.push(`/editor/${payload.result.bookId}`)
+}
 </script>
 
 <template>
@@ -146,6 +154,20 @@ const handleSettings = (id: string) => {
           </template>
         </NInput>
         <NSelect v-model:value="sortBy" size="large" class="toolbar-sort" :options="sortOptions" />
+        <div class="toolbar-actions">
+          <NButton size="large" secondary @click="showImportModal = true">
+            <template #icon>
+              <span class="i-carbon-upload" />
+            </template>
+            {{ t('home.importFile') }}
+          </NButton>
+          <NButton type="primary" size="large" @click="openCreateBookModal">
+            <template #icon>
+              <span class="i-carbon-add" />
+            </template>
+            {{ t('app.createBook') }}
+          </NButton>
+        </div>
       </div>
 
       <NEmpty v-if="bookStore.books.length === 0" :description="t('home.emptyDesc')" class="mt-20">
@@ -156,12 +178,20 @@ const handleSettings = (id: string) => {
           <div class="mt-3 text-sm" style="color: var(--text-secondary)">{{ t('home.emptyTitle') }}</div>
         </template>
         <template #extra>
-          <NButton type="primary" @click="showModal = true">
-            <template #icon>
-              <span class="i-carbon-add" />
-            </template>
-            {{ t('app.createBook') }}
-          </NButton>
+          <div class="empty-actions">
+            <NButton secondary @click="showImportModal = true">
+              <template #icon>
+                <span class="i-carbon-upload" />
+              </template>
+              {{ t('home.importFile') }}
+            </NButton>
+            <NButton type="primary" @click="showModal = true">
+              <template #icon>
+                <span class="i-carbon-add" />
+              </template>
+              {{ t('app.createBook') }}
+            </NButton>
+          </div>
         </template>
       </NEmpty>
 
@@ -235,6 +265,8 @@ const handleSettings = (id: string) => {
         </div>
       </template>
     </NModal>
+
+    <ImportDialog v-model:show="showImportModal" @applied="handleImportApplied" />
   </div>
 </template>
 
@@ -272,6 +304,14 @@ const handleSettings = (id: string) => {
 .toolbar-sort {
   width: 168px;
   flex: 0 0 168px;
+}
+
+.toolbar-actions,
+.empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-left: auto;
 }
 
 .book-grid {
@@ -605,6 +645,11 @@ const handleSettings = (id: string) => {
 
   .toolbar-sort {
     width: 100%;
+  }
+
+  .toolbar-actions {
+    width: 100%;
+    margin-left: 0;
   }
 }
 </style>

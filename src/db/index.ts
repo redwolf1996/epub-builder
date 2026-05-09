@@ -1,9 +1,10 @@
 import Dexie from 'dexie'
-import type { Book, Chapter } from '@/types'
+import type { Book, BookAsset, Chapter } from '@/types'
 
 class EpubBuilderDB extends Dexie {
   books!: Dexie.Table<Book, string>
   chapters!: Dexie.Table<Chapter, string>
+  assets!: Dexie.Table<BookAsset, string>
 
   constructor() {
     super('epub-builder')
@@ -19,6 +20,11 @@ class EpubBuilderDB extends Dexie {
       return (tx.table('chapters') as Dexie.Table<Chapter, string>).toCollection().modify((ch: Chapter) => {
         if (ch.parentId === undefined) ch.parentId = null
       })
+    })
+    this.version(3).stores({
+      books: 'id, meta.title, createdAt, updatedAt',
+      chapters: 'id, bookId, parentId, order, createdAt, updatedAt',
+      assets: 'id, bookId, createdAt',
     })
   }
 }

@@ -2,9 +2,10 @@ import { describe, it, expect } from 'vitest'
 import { renderMarkdown, renderExportMarkdown, extractTitle } from '@/utils/markdown'
 
 describe('renderMarkdown', () => {
-  it('adds data-line to block elements', () => {
+  it('adds source line range data to block elements', () => {
     const html = renderMarkdown('# Hello')
     expect(html).toContain('data-line="1"')
+    expect(html).toContain('data-line-end=')
     expect(html).toContain('<h1')
   })
 

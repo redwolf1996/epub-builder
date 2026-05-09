@@ -1,19 +1,27 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
+import { replaceAssetUrls } from '@/utils/assets'
 import { renderMarkdown } from '@/utils/markdown'
 import type { LineAnchor, ScrollSnapshot } from '@/composables/useScrollSync'
 
 const props = defineProps<{
   content: string
+  bookId?: string
 }>()
 
 const emit = defineEmits<{
   scroll: []
 }>()
 
-const html = computed(() => renderMarkdown(props.content))
+const resolvedContent = ref(props.content)
+const html = computed(() => renderMarkdown(resolvedContent.value))
 const previewRef = ref<HTMLElement | null>(null)
 const dataLineElements = ref<HTMLElement[]>([])
+let lastUserScrollIntent = 0
+
+const markUserScrollIntent = () => {
+  lastUserScrollIntent = Date.now()
+}
 
 const rebuildDataLineElements = async () => {
   await nextTick()
@@ -41,15 +49,23 @@ const findClosestElement = (line: number): HTMLElement | null => {
   const previous = lo > 0 ? elements[lo - 1] : null
   if (!previous) return current
 
-  const currentDiff = Math.abs(Number(current.dataset.line) - line)
-  const previousDiff = Math.abs(Number(previous.dataset.line) - line)
+  const currentStart = Number(current.dataset.line)
+  const currentEnd = Number(current.dataset.lineEnd || current.dataset.line)
+  const previousStart = Number(previous.dataset.line)
+  const previousEnd = Number(previous.dataset.lineEnd || previous.dataset.line)
+  const currentDiff = line < currentStart ? currentStart - line : line - currentEnd
+  const previousDiff = line < previousStart ? previousStart - line : line - previousEnd
   return previousDiff <= currentDiff ? previous : current
 }
 
 const scrollToLine = (line: number, offsetY = 0) => {
   if (!previewRef.value) return
 
-  const exact = dataLineElements.value.find((element) => Number(element.dataset.line) === line) ?? null
+  const exact = dataLineElements.value.find((element) => {
+    const start = Number(element.dataset.line)
+    const end = Number(element.dataset.lineEnd || element.dataset.line)
+    return line >= start && line <= end
+  }) ?? null
   const element = exact || findClosestElement(line)
   if (!element) return
 
@@ -78,12 +94,18 @@ const getPositionMap = (): LineAnchor[] => {
   return dataLineElements.value
     .map((element) => {
       const line = Number(element.dataset.line)
-      if (!Number.isFinite(line)) return null
+      const lineEnd = Number(element.dataset.lineEnd || element.dataset.line)
+      if (!Number.isFinite(line) || !Number.isFinite(lineEnd)) return null
 
       const rect = element.getBoundingClientRect()
       const top = rect.top - containerRect.top + containerScrollTop
       const bottom = rect.bottom - containerRect.top + containerScrollTop
-      return { line, top, bottom }
+      return {
+        lineStart: line,
+        lineEnd: Math.max(line, lineEnd),
+        top,
+        bottom,
+      }
     })
     .filter((anchor): anchor is LineAnchor => anchor !== null)
 }
@@ -104,10 +126,16 @@ const onScroll = () => {
 
 onMounted(async () => {
   await rebuildDataLineElements()
+  previewRef.value?.addEventListener('wheel', markUserScrollIntent, { passive: true })
+  previewRef.value?.addEventListener('pointerdown', markUserScrollIntent, { passive: true })
+  previewRef.value?.addEventListener('touchstart', markUserScrollIntent, { passive: true })
   previewRef.value?.addEventListener('scroll', onScroll, { passive: true })
 })
 
 onBeforeUnmount(() => {
+  previewRef.value?.removeEventListener('wheel', markUserScrollIntent)
+  previewRef.value?.removeEventListener('pointerdown', markUserScrollIntent)
+  previewRef.value?.removeEventListener('touchstart', markUserScrollIntent)
   previewRef.value?.removeEventListener('scroll', onScroll)
   if (scrollRafId) cancelAnimationFrame(scrollRafId)
 })
@@ -116,10 +144,15 @@ watch(html, () => {
   void rebuildDataLineElements()
 })
 
+watch(() => [props.content, props.bookId] as const, async ([content]) => {
+  resolvedContent.value = await replaceAssetUrls(content, 'preview')
+}, { immediate: true })
+
 defineExpose({
   scrollToLine,
   getScrollSnapshot,
   getPositionMap,
+  getLastUserScrollIntent: () => lastUserScrollIntent,
   setScrollTop,
 })
 </script>

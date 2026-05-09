@@ -41,8 +41,8 @@ const chapters: Chapter[] = [
 ]
 
 describe('buildMarkdownExport', () => {
-  it('exports clean nested chapter headings without a duplicated toc block', () => {
-    const markdown = buildMarkdownExport(meta, chapters)
+  it('exports clean nested chapter headings without a duplicated toc block', async () => {
+    const markdown = await buildMarkdownExport(meta, chapters)
 
     expect(markdown).toContain('# Demo Book')
     expect(markdown).not.toContain('## 目录')
@@ -51,8 +51,8 @@ describe('buildMarkdownExport', () => {
     expect(markdown).toContain('Nested body')
   })
 
-  it('removes duplicate leading chapter headings from chapter content', () => {
-    const markdown = buildMarkdownExport(meta, [{
+  it('removes duplicate leading chapter headings from chapter content', async () => {
+    const markdown = await buildMarkdownExport(meta, [{
       ...chapters[0],
       content: '# Root 1\n\nIntro',
     }])
@@ -63,8 +63,8 @@ describe('buildMarkdownExport', () => {
 })
 
 describe('buildPrintHtml', () => {
-  it('renders a printable document with title, toc, and chapter content', () => {
-    const html = buildPrintHtml(meta, chapters)
+  it('renders a printable document with title, toc, and chapter content', async () => {
+    const html = await buildPrintHtml(meta, chapters)
 
     expect(html).toContain('<title>Demo Book</title>')
     expect(html).toContain('<section class="toc">')

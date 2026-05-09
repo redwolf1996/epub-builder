@@ -16,6 +16,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   export: [format: ExportFormat]
+  import: []
   aiOcr: []
   openDevtools: []
   fullscreen: []
@@ -39,6 +40,7 @@ const editorRef = defineModel<EditorActions | null>('editorRef', { required: fal
 const showHelp = ref(false)
 const showMore = ref(false)
 const { t } = useI18n()
+const showDevtoolsAction = import.meta.env.DEV && isTauri()
 
 const optionIcon = (iconClass: string, style?: string) => () => h('span', {
   class: `${iconClass} text-sm`,
@@ -49,13 +51,14 @@ const exportOptions = computed(() => ([
   { label: t('editor.exportEpub'), key: 'epub', icon: optionIcon('i-carbon-book') },
   { label: t('editor.exportPdf'), key: 'pdf', icon: optionIcon('i-carbon-document-pdf') },
   { label: t('editor.exportMarkdown'), key: 'markdown', icon: optionIcon('i-carbon-document') },
+  { label: t('editor.exportWord'), key: 'docx', icon: optionIcon('i-carbon-document-word-processor') },
 ]))
 
 const moreActions = computed<Array<{ key: string; label: string; icon: () => ReturnType<typeof h> }>>(() => ([
   { key: 'inlineCode', label: t('toolbar.inlineCode'), icon: optionIcon('i-carbon-code') },
   { key: 'codeBlock', label: t('toolbar.codeBlock'), icon: optionIcon('i-carbon-terminal') },
   { key: 'link', label: t('toolbar.link'), icon: optionIcon('i-carbon-link') },
-  ...(isTauri() ? [{ key: 'devtools', label: t('toolbar.devtools'), icon: optionIcon('i-carbon-development') }] : []),
+  ...(showDevtoolsAction ? [{ key: 'devtools', label: t('toolbar.devtools'), icon: optionIcon('i-carbon-development') }] : []),
 ]))
 
 const insertHeading = () => {
@@ -132,7 +135,7 @@ const handleMoreSelect = (key: string) => {
 const withShortcut = (label: string, shortcut: string) => `${label} (${shortcut})`
 
 const handleExportSelect = (key: string) => {
-  if (key === 'epub' || key === 'pdf' || key === 'markdown') {
+  if (key === 'epub' || key === 'pdf' || key === 'markdown' || key === 'docx') {
     emit('export', key)
   }
 }
@@ -320,6 +323,11 @@ const handleExportSelect = (key: string) => {
     </div>
 
     <div class="flex-1" />
+
+    <NButton size="small" secondary :disabled="props.exporting || props.ocrProcessing" @click="emit('import')">
+      <span class="i-carbon-upload" :class="{ 'mr-1': !props.compact }" />
+      <span v-if="!props.compact">{{ t('editor.importFile') }}</span>
+    </NButton>
 
     <NDropdown :options="exportOptions" trigger="click" placement="bottom-end" @select="handleExportSelect">
       <NButton type="primary" size="small" :loading="props.exporting" :disabled="props.ocrProcessing">

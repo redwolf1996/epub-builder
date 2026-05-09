@@ -10,6 +10,13 @@
     "clipboard-manager:default",
     "clipboard-manager:allow-read-text",
     "fs:default",
+    "fs:allow-applocaldata-read-recursive",
+    "fs:allow-applocaldata-write-recursive",
+    "fs:allow-applocaldata-meta-recursive",
+    "fs:allow-read-file",
+    "fs:allow-exists",
+    "fs:allow-mkdir",
+    "fs:allow-remove",
     "fs:allow-write-file",
     "core:window:allow-set-fullscreen",
     "core:window:allow-set-title"

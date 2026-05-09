@@ -1,11 +1,11 @@
 {
   "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/crates/tauri-cli/schema.json",
   "productName": "EPUB Builder",
-  "version": "0.2.3",
+  "version": "0.2.5",
   "identifier": "com.epub-builder",
   "build": {
     "frontendDist": "../dist",
-    "devUrl": "http://127.0.0.1:3401",
+    "devUrl": "http://127.0.0.1:7777",
     "beforeDevCommand": "pnpm dev",
     "beforeBuildCommand": "pnpm build"
   },

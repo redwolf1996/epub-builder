@@ -1,4 +1,5 @@
 import { ref } from 'vue'
+import { deleteBookAssets } from '@/utils/assets'
 import { db } from '@/db'
 import type { Book, BookMeta } from '@/types'
 
@@ -87,6 +88,7 @@ export function useBook() {
   }
 
   const deleteBook = async (id: string) => {
+    await deleteBookAssets(id)
     await db.chapters.where('bookId').equals(id).delete()
     await db.books.delete(id)
     await loadBooks()

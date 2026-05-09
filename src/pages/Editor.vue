@@ -1,6 +1,6 @@
 <script setup lang="ts">
   import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-  import { useRoute } from 'vue-router'
+  import { useRoute, useRouter } from 'vue-router'
   import { useI18n } from 'vue-i18n'
   import { NButton, NInput, NModal, NScrollbar, useDialog, useMessage } from 'naive-ui'
   import { open } from '@tauri-apps/plugin-dialog'
@@ -14,7 +14,9 @@
   import { useResizable } from '@/composables/useResizable'
   import { useChapterManager } from '@/composables/useChapterManager'
   import { useScrollSync } from '@/composables/useScrollSync'
+  import ImportDialog from '@/components/import/ImportDialog.vue'
   import type { EditorActions } from '@/components/editor/EditorToolbar.vue'
+  import type { ApplyImportResult, ImportDocument, ImportMode } from '@/types'
   const CodeMirrorEditor = defineAsyncComponent(() => import('@/components/editor/CodeMirrorEditor.vue'))
   const EditorToolbar = defineAsyncComponent(() => import('@/components/editor/EditorToolbar.vue'))
   const MarkdownPreview = defineAsyncComponent(() => import('@/components/preview/MarkdownPreview.vue'))
@@ -58,6 +60,7 @@
   }
 
   const route = useRoute()
+  const router = useRouter()
   const bookStore = useBookStore()
   const editorStore = useEditorStore()
   const message = useMessage()
@@ -75,6 +78,7 @@
   const isMobile = ref(window.innerWidth < 768)
   const isFullscreen = ref(false)
   const showChapterDrawer = ref(false)
+  const showImportModal = ref(false)
   const aiOcrProcessing = ref(false)
   const showAiOcrModal = ref(false)
   const pendingAiOcrPaths = ref<string[]>([])
@@ -306,6 +310,17 @@
     editorStore.setContent(value)
   }
 
+  const handleImportApplied = async (payload: { result: ApplyImportResult; mode: ImportMode; document: ImportDocument }) => {
+    message.success(t('import.success'))
+
+    if (payload.mode === 'newBook') {
+      await router.push(`/editor/${payload.result.bookId}`)
+      return
+    }
+
+    await bookStore.openBook(payload.result.bookId)
+  }
+
   const handleAiOcr = async () => {
     if (!isTauri()) {
       message.warning(t('editor.aiOcrDesktopOnly'))
@@ -501,6 +516,8 @@
     switch (format) {
       case 'markdown':
         return t('export.markdownSaved')
+      case 'docx':
+        return t('export.wordSaved')
       case 'pdf':
         return isTauri() ? t('export.pdfSaved') : t('export.pdfOpened')
       default:
@@ -512,6 +529,8 @@
     switch (format) {
       case 'markdown':
         return t('export.markdownCancelled')
+      case 'docx':
+        return t('export.wordCancelled')
       case 'pdf':
         return isTauri() ? t('epub.exportCancelled') : t('export.pdfCancelled')
       default:
@@ -523,6 +542,8 @@
     switch (format) {
       case 'markdown':
         return t('editor.exportMarkdown')
+      case 'docx':
+        return t('editor.exportWord')
       case 'pdf':
         return t('editor.exportPdf')
       default:
@@ -579,7 +600,7 @@
 
   const handleMenuExport = (event: Event) => {
     const format = (event as CustomEvent<ExportFormat>).detail
-    if (format === 'epub' || format === 'pdf' || format === 'markdown') {
+    if (format === 'epub' || format === 'pdf' || format === 'markdown' || format === 'docx') {
       void handleExport(format)
     }
   }
@@ -747,7 +768,7 @@
     <main class="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden" @click="handleEditorAreaClick">
       <EditorToolbar :editor-ref="editorActions" :exporting="exporting" :ocr-processing="anyOcrProcessing"
         :show-chapter-toggle="showDrawerToggle" :chapter-toggle-active="showChapterDrawer" :sync-scroll="syncScroll"
-        :compact="isMobile" @export="handleExport" @ai-ocr="handleAiOcr" @fullscreen="toggleFullscreen"
+        :compact="isMobile" @export="handleExport" @import="showImportModal = true" @ai-ocr="handleAiOcr" @fullscreen="toggleFullscreen"
         @open-devtools="openDevtools" @toggle-chapter="showChapterDrawer = !showChapterDrawer"
         @toggle-scroll-sync="onMenuScrollSync" />
 
@@ -763,7 +784,7 @@
 
         <div class="min-h-0 overflow-hidden" :style="{ width: isMobile ? '100%' : `${(1 - editorRatio) * 100}%` }"
           :class="{ hidden: isMobile && !editorStore.previewMode }">
-          <MarkdownPreview ref="previewRef" :content="editorStore.content" @scroll="handlePreviewScroll" />
+          <MarkdownPreview ref="previewRef" :content="editorStore.content" :book-id="bookId" @scroll="handlePreviewScroll" />
         </div>
       </div>
 
@@ -879,6 +900,14 @@
         </div>
       </template>
     </NModal>
+
+    <ImportDialog
+      v-model:show="showImportModal"
+      :current-book-id="bookId"
+      :current-chapter-id="bookStore.currentChapter?.id"
+      :allow-chapter-targets="true"
+      @applied="handleImportApplied"
+    />
   </div>
 </template>
 

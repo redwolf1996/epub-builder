@@ -21,6 +21,7 @@
   const editorRef = shallowRef<EditorView | null>(null)
   const containerRef = shallowRef<HTMLElement | null>(null)
   const phraseCompartment = new Compartment()
+  let lastUserScrollIntent = 0
 
   const emit = defineEmits<{
     'update:modelValue': [value: string]
@@ -28,6 +29,14 @@
   }>()
 
   const dimTag = Decoration.mark({ class: 'cm-color-span-dim' })
+  const markUserScrollIntent = () => {
+    lastUserScrollIntent = Date.now()
+  }
+
+  const isScrollIntentKey = (key: string) => {
+    return ['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(key)
+  }
+
   const colorSpanPlugin = ViewPlugin.fromClass(class {
     decorations: DecorationSet = Decoration.none
     constructor(view: EditorView) { this.build(view) }
@@ -272,6 +281,17 @@
       }),
       EditorView.lineWrapping,
       EditorView.domEventHandlers({
+        wheel() {
+          markUserScrollIntent()
+        },
+        pointerdown() {
+          markUserScrollIntent()
+        },
+        keydown(event) {
+          if (isScrollIntentKey(event.key)) {
+            markUserScrollIntent()
+          }
+        },
         paste(event) {
           const files = event.clipboardData?.files
           if (!files || files.length === 0) return
@@ -371,7 +391,8 @@
     if (!editorRef.value) return []
 
     return editorRef.value.viewportLineBlocks.map((block) => ({
-      line: editorRef.value!.state.doc.lineAt(block.from).number,
+      lineStart: editorRef.value!.state.doc.lineAt(block.from).number,
+      lineEnd: editorRef.value!.state.doc.lineAt(Math.max(block.to - 1, block.from)).number,
       top: block.top,
       bottom: block.bottom,
     }))
@@ -386,6 +407,7 @@
   defineExpose({
     getScrollSnapshot,
     getPositionMap,
+    getLastUserScrollIntent: () => lastUserScrollIntent,
     setScrollTop,
     scrollToLine: (line: number) => {
       if (!editorRef.value) return

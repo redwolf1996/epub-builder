@@ -263,6 +263,50 @@ export async function exportToEpub(bookId: string): Promise<Blob> {
     numberChaptersInTOC: false,
     prependChapterTitles: false,
     version: 3,
+    css: `
+blockquote {
+  margin: 16px 0;
+  padding: 0.5em 1em;
+  border-left: 4px solid #6b7280;
+  background: #f3f4f6;
+  border-radius: 0 6px 6px 0;
+  color: #4b5563;
+}
+pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #f3f4f6;
+  border-radius: 6px;
+  padding: 12px;
+  overflow: hidden;
+}
+code {
+  background: #f3f4f6;
+  border-radius: 3px;
+  padding: 2px 4px;
+  font-size: 90%;
+}
+pre code {
+  background: none;
+  padding: 0;
+  font-size: inherit;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+th, td {
+  border: 1px solid #d1d5db;
+  padding: 8px;
+  vertical-align: top;
+  word-break: break-word;
+}
+img {
+  max-width: 100%;
+  height: auto;
+}
+`,
     tocXHTML: tocXHTMLTemplate,
     tocNCX: tocNCXTemplate,
     tocXhtmlBody,

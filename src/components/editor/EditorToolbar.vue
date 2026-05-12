@@ -11,6 +11,7 @@ const props = defineProps<{
   showChapterToggle?: boolean
   chapterToggleActive?: boolean
   syncScroll?: boolean
+  previewMode?: boolean
   compact?: boolean
 }>()
 
@@ -22,6 +23,7 @@ const emit = defineEmits<{
   fullscreen: []
   toggleChapter: []
   toggleScrollSync: []
+  togglePreview: []
 }>()
 
 export interface EditorActions {
@@ -273,6 +275,20 @@ const handleExportSelect = (key: string) => {
           </NButton>
         </template>
         {{ t('toolbar.scrollSync') }}
+      </NTooltip>
+      <NTooltip v-if="!props.compact" trigger="hover">
+        <template #trigger>
+          <NButton
+            quaternary
+            size="tiny"
+            :type="props.previewMode ? 'primary' : 'default'"
+            @click="emit('togglePreview')"
+          >
+            <span v-if="props.previewMode" class="i-carbon-view-off text-sm" />
+            <span v-else class="i-carbon-view text-sm" />
+          </NButton>
+        </template>
+        {{ props.previewMode ? t('toolbar.editMode') : t('toolbar.previewMode') }}
       </NTooltip>
       <NTooltip trigger="hover">
         <template #trigger>

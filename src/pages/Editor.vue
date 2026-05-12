@@ -768,21 +768,22 @@
     <main class="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden" @click="handleEditorAreaClick">
       <EditorToolbar :editor-ref="editorActions" :exporting="exporting" :ocr-processing="anyOcrProcessing"
         :show-chapter-toggle="showDrawerToggle" :chapter-toggle-active="showChapterDrawer" :sync-scroll="syncScroll"
-        :compact="isMobile" @export="handleExport" @import="showImportModal = true" @ai-ocr="handleAiOcr" @fullscreen="toggleFullscreen"
-        @open-devtools="openDevtools" @toggle-chapter="showChapterDrawer = !showChapterDrawer"
-        @toggle-scroll-sync="onMenuScrollSync" />
+        :preview-mode="editorStore.previewMode" :compact="isMobile" @export="handleExport" @import="showImportModal = true"
+        @ai-ocr="handleAiOcr" @fullscreen="toggleFullscreen" @open-devtools="openDevtools"
+        @toggle-chapter="showChapterDrawer = !showChapterDrawer" @toggle-scroll-sync="onMenuScrollSync"
+        @toggle-preview="editorStore.togglePreviewMode()" />
 
       <div ref="splitContainerRef" class="split-container flex-1 flex min-h-0 overflow-hidden">
         <div class="min-h-0 overflow-hidden" :style="{ width: isMobile ? '100%' : `${editorRatio * 100}%` }"
-          :class="{ hidden: isMobile && editorStore.previewMode }">
+          :class="{ hidden: editorStore.previewMode }">
           <CodeMirrorEditor ref="cmEditorRef" :model-value="editorStore.content"
             @update:model-value="handleContentChange"
             @scroll="handleEditorScroll" />
         </div>
 
-        <div v-if="!isMobile" class="resize-handle" @mousedown="onSplitDragStart" />
+        <div v-if="!isMobile && !editorStore.previewMode" class="resize-handle" @mousedown="onSplitDragStart" />
 
-        <div class="min-h-0 overflow-hidden" :style="{ width: isMobile ? '100%' : `${(1 - editorRatio) * 100}%` }"
+        <div class="min-h-0 overflow-hidden" :style="{ width: isMobile || editorStore.previewMode ? '100%' : `${(1 - editorRatio) * 100}%` }"
           :class="{ hidden: isMobile && !editorStore.previewMode }">
           <MarkdownPreview ref="previewRef" :content="editorStore.content" :book-id="bookId" @scroll="handlePreviewScroll" />
         </div>

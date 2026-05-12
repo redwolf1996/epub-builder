@@ -162,6 +162,8 @@ export default {
     devtools: '开发者工具',
     search: '查找替换',
     scrollSync: '滚动同步',
+    previewMode: '预览模式',
+    editMode: '编辑模式',
     fontSizeDown: '减小字号',
     fontSizeUp: '增大字号',
   },

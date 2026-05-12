@@ -162,6 +162,8 @@ export default {
     devtools: 'Developer Tools',
     search: 'Find & Replace',
     scrollSync: 'Scroll Sync',
+    previewMode: 'Preview Mode',
+    editMode: 'Edit Mode',
     fontSizeDown: 'Decrease Font Size',
     fontSizeUp: 'Increase Font Size',
   },

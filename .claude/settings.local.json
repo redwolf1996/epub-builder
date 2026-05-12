@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem *)",
+      "Bash(git checkout *)",
+      "Bash(pnpm lint *)",
+      "Bash(pnpm exec *)",
+      "Bash(pnpm test:run *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git merge *)",
+      "Bash(git push *)"
+    ]
+  }
+}

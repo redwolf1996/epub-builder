@@ -59,7 +59,8 @@ describe('useEditorZoom', () => {
 
     expect(editorSizes.at(-2)).toBe(EDITOR_ZOOM_DEFAULT + 1)
     expect(editorSizes.at(-1)).toBe(EDITOR_ZOOM_DEFAULT)
-    expect(previewSizes.at(-2)).toBeGreaterThan(previewSizes.at(-1) ?? 0)
+    expect(previewSizes.at(-2)).toBe(EDITOR_ZOOM_DEFAULT + 1)
+    expect(previewSizes.at(-1)).toBe(EDITOR_ZOOM_DEFAULT)
   })
 
   it('persists font size to localStorage', () => {

@@ -5,7 +5,6 @@ export const EDITOR_ZOOM_DEFAULT = 14
 export const EDITOR_ZOOM_MIN = 10
 export const EDITOR_ZOOM_MAX = 32
 export const EDITOR_ZOOM_STEP = 1
-const PREVIEW_BASE_SIZE = 16
 
 type ZoomTarget = {
   setFontSize: (size: number) => void
@@ -23,11 +22,6 @@ export function clampFontSize(size: number): number {
   return Math.min(EDITOR_ZOOM_MAX, Math.max(EDITOR_ZOOM_MIN, size))
 }
 
-function previewFontSize(editorSize: number): number {
-  const scale = editorSize / EDITOR_ZOOM_DEFAULT
-  return Math.round(PREVIEW_BASE_SIZE * scale)
-}
-
 function isTypingInFormField(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false
   if (target.closest('.cm-editor')) return false
@@ -43,7 +37,7 @@ export function useEditorZoom(
 
   const applyZoom = () => {
     editorRef.value?.setFontSize(fontSize.value)
-    previewRef.value?.setFontSize(previewFontSize(fontSize.value))
+    previewRef.value?.setFontSize(fontSize.value)
     localStorage.setItem(STORAGE_KEY, String(fontSize.value))
   }
 

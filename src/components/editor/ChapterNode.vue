@@ -2,6 +2,7 @@
   import { computed, h, ref } from 'vue'
   import { NButton, NDropdown, NInput, useDialog } from 'naive-ui'
   import { VueDraggable } from 'vue-draggable-plus'
+  import ChapterTitle from '@/components/editor/ChapterTitle.vue'
   import type { Chapter } from '@/types'
 
   const props = defineProps<{
@@ -106,44 +107,45 @@
     :class="{ 'ml-4': parentId !== null }">
     <div v-for="chapter in chapterList" :key="chapter.id">
       <div
-        class="chapter-item flex min-w-0 items-center gap-2 px-3 py-2"
+        class="chapter-item px-3 py-2"
         :class="{ active: currentChapterId === chapter.id }"
         @contextmenu="handleContextMenu($event, chapter)">
-        <button
-          v-if="getChildren(chapter.id).length > 0"
-          class="collapse-btn shrink-0"
-          @click.stop="emit('toggleCollapse', chapter.id)">
-          <span class="i-carbon-chevron-right transition-transform"
-            :class="{ 'rotate-90': !isCollapsed(chapter.id) }" />
-        </button>
-        <span v-else class="shrink-0" style="width: 16px" />
         <span
-          class="drag-handle shrink-0 flex items-center justify-center"
+          class="drag-handle flex items-center justify-center"
           style="color: var(--text-muted); width: 16px; height: 24px; cursor: grab">⠿</span>
-        <template v-if="editingChapterId === chapter.id">
+        <div class="chapter-main">
           <NInput
+            v-if="editingChapterId === chapter.id"
             size="tiny"
             autofocus
-            class="chapter-title-input flex-1 min-w-0"
+            class="chapter-title-input"
             :value="editingTitle"
             :placeholder="renamePlaceholder"
             @update:value="emit('renameInput', $event)"
             @keyup.enter="emit('renameConfirm')"
             @keyup.escape="emit('renameCancel')"
             @blur="emit('renameConfirm')" />
-        </template>
-        <template v-else>
-          <span
-            class="chapter-title flex-1 min-w-0 cursor-pointer text-sm"
+          <ChapterTitle
+            v-else
+            :title="chapter.title"
             @click="emit('select', chapter)"
-            @dblclick="emit('renameStart', chapter)">{{ chapter.title }}</span>
-        </template>
-        <NDropdown :options="getActionOptions(chapter)" trigger="click" placement="bottom-end"
-          @select="handleAction($event, chapter)">
-          <NButton quaternary size="tiny" @click.stop class="action-btn shrink-0">
-            <span class="i-carbon-overflow-menu-horizontal text-xs" />
-          </NButton>
-        </NDropdown>
+            @dblclick="emit('renameStart', chapter)" />
+        </div>
+        <div class="chapter-trailing">
+          <button
+            v-if="getChildren(chapter.id).length > 0"
+            class="collapse-btn"
+            @click.stop="emit('toggleCollapse', chapter.id)">
+            <span class="i-carbon-chevron-right transition-transform"
+              :class="{ 'rotate-90': !isCollapsed(chapter.id) }" />
+          </button>
+          <NDropdown :options="getActionOptions(chapter)" trigger="click" placement="bottom-end"
+            @select="handleAction($event, chapter)">
+            <NButton quaternary size="tiny" @click.stop class="action-btn">
+              <span class="i-carbon-overflow-menu-horizontal text-xs" />
+            </NButton>
+          </NDropdown>
+        </div>
       </div>
       <ChapterNode v-if="getChildren(chapter.id).length > 0 && !isCollapsed(chapter.id)" :parent-id="chapter.id"
         :chapters="chapters" :current-chapter-id="currentChapterId" :editing-chapter-id="editingChapterId"
@@ -173,19 +175,31 @@
 
 <style scoped>
   .chapter-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
     color: var(--text-secondary);
     border-radius: 0 4px 4px 0;
     transition: background 0.15s ease, color 0.15s ease;
   }
 
-  .chapter-title {
+  .chapter-main {
+    flex: 1 1 0;
+    width: 0;
+    min-width: 0;
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  }
+
+  .chapter-trailing {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 0;
   }
 
   .chapter-title-input {
-    min-width: 0;
+    width: 100%;
   }
 
   .chapter-item:hover {
@@ -196,7 +210,6 @@
   .chapter-item.active {
     background: var(--bg-active);
     color: var(--primary);
-    font-weight: 500;
     box-shadow: inset 3px 0 0 var(--primary);
   }
 
@@ -214,7 +227,7 @@
   }
 
   .collapse-btn {
-    width: 16px;
+    width: 24px;
     height: 24px;
     display: flex;
     align-items: center;
@@ -224,6 +237,13 @@
     border: none;
     background: none;
     padding: 0;
+    border-radius: 4px;
+    transition: opacity 0.2s, background 0.15s ease, color 0.15s ease;
+  }
+
+  .collapse-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
   }
 
   .action-btn {
@@ -231,7 +251,8 @@
     transition: opacity 0.2s;
   }
 
-  .chapter-item:hover .action-btn {
+  .chapter-item:hover .action-btn,
+  .chapter-item.active .action-btn {
     opacity: 1;
   }
 

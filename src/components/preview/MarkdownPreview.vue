@@ -167,8 +167,9 @@ defineExpose({
 
 <style>
 .markdown-preview {
+  font-size: 14px;
   color: var(--text-secondary);
-  line-height: 1.8;
+  line-height: 1.65;
   background: color-mix(in srgb, var(--bg-surface) 92%, #fff 8%);
 }
 

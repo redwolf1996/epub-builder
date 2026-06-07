@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { NEllipsis } from 'naive-ui'
 
-const props = defineProps<{
+defineProps<{
   title: string
 }>()
 
@@ -9,53 +9,30 @@ const emit = defineEmits<{
   click: []
   dblclick: []
 }>()
-
-const rootRef = ref<HTMLElement | null>(null)
-const overflow = ref(false)
-
-const checkOverflow = () => {
-  const el = rootRef.value
-  if (!el) return
-  overflow.value = el.scrollWidth > el.clientWidth
-}
-
-let resizeObserver: ResizeObserver | null = null
-
-onMounted(async () => {
-  await nextTick()
-  checkOverflow()
-  resizeObserver = new ResizeObserver(() => checkOverflow())
-  if (rootRef.value) resizeObserver.observe(rootRef.value)
-})
-
-onBeforeUnmount(() => {
-  resizeObserver?.disconnect()
-})
-
-watch(() => props.title, async () => {
-  await nextTick()
-  checkOverflow()
-})
 </script>
 
 <template>
   <div
-    ref="rootRef"
-    class="chapter-title text-sm"
-    :title="overflow ? title : undefined"
+    class="chapter-title-host"
     @click="emit('click')"
     @dblclick="emit('dblclick')">
-    {{ title }}
+    <NEllipsis
+      class="chapter-title text-sm"
+      :tooltip="{ maxWidth: 360, placement: 'right' }">
+      {{ title }}
+    </NEllipsis>
   </div>
 </template>
 
 <style scoped>
-.chapter-title {
-  display: block;
+.chapter-title-host {
+  min-width: 0;
   width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   cursor: pointer;
+}
+
+.chapter-title-host :deep(.n-ellipsis) {
+  display: block;
+  max-width: 100%;
 }
 </style>

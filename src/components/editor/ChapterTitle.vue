@@ -29,6 +29,9 @@ const emit = defineEmits<{
   min-width: 0;
   width: 100%;
   cursor: pointer;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .chapter-title-host :deep(.n-ellipsis) {

@@ -103,6 +103,8 @@
     group="chapters"
     ghost-class="chapter-ghost"
     drag-class="chapter-drag"
+    :force-fallback="true"
+    :fallback-on-body="true"
     class="flex flex-col gap-1"
     :class="{ 'ml-4': parentId !== null }">
     <div v-for="chapter in chapterList" :key="chapter.id">
@@ -121,12 +123,14 @@
             class="chapter-title-input"
             :value="editingTitle"
             :placeholder="renamePlaceholder"
+            @click.stop
             @update:value="emit('renameInput', $event)"
             @keyup.enter="emit('renameConfirm')"
             @keyup.escape="emit('renameCancel')"
             @blur="emit('renameConfirm')" />
           <ChapterTitle
             v-else
+            v-memo="[chapter.title]"
             :title="chapter.title"
             @click="emit('select', chapter)"
             @dblclick="emit('renameStart', chapter)" />
@@ -179,9 +183,12 @@
     align-items: center;
     gap: 8px;
     min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
     color: var(--text-secondary);
+    border-left: 3px solid transparent;
     border-radius: 0 4px 4px 0;
-    transition: background 0.15s ease, color 0.15s ease;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
   }
 
   .chapter-main {
@@ -210,7 +217,7 @@
   .chapter-item.active {
     background: var(--bg-active);
     color: var(--primary);
-    box-shadow: inset 3px 0 0 var(--primary);
+    border-left-color: var(--primary);
   }
 
   .chapter-item:hover .n-button {

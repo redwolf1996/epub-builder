@@ -9,7 +9,14 @@
       "Bash(git add *)",
       "Bash(git commit *)",
       "Bash(git merge *)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Bash(npx vue-tsc *)",
+      "Bash(pnpm build *)",
+      "Bash(node *)",
+      "Bash(xargs grep -l \"VTarget\\\\|target.*ref\\\\|isTarget\")",
+      "Bash(taskkill /f /im epub-builder.exe)",
+      "Bash(rm -rf C:/Users/syx/code/epub-builder/src-tauri/target/debug/build/tauri-plugin-dialog-*)",
+      "Bash(pnpm td *)"
     ]
   }
 }

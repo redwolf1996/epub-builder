@@ -322,6 +322,12 @@
     }
   }
 
+  const handleSidebarClick = () => {
+    if (editingChapterId.value) {
+      confirmRename()
+    }
+  }
+
   const handleContentChange = (value: string) => {
     editorStore.setContent(value)
   }
@@ -674,8 +680,34 @@
     void editorStore.flushSave()
     editorStore.loadChapterContent(chapter.content)
     cmEditorRef.value?.loadContent(chapter.content)
-    showChapterDrawer.value = false
   })
+
+  let closeDrawerTimer: ReturnType<typeof setTimeout> | null = null
+
+  const scheduleDrawerClose = () => {
+    if (closeDrawerTimer) clearTimeout(closeDrawerTimer)
+    closeDrawerTimer = setTimeout(() => {
+      showChapterDrawer.value = false
+      closeDrawerTimer = null
+    }, 300)
+  }
+
+  const cancelDrawerClose = () => {
+    if (closeDrawerTimer) {
+      clearTimeout(closeDrawerTimer)
+      closeDrawerTimer = null
+    }
+  }
+
+  const onChapterClick = (chapter: { id: string; title: string }) => {
+    handleChapterClick(chapter)
+    scheduleDrawerClose()
+  }
+
+  const onChapterDblClick = (chapter: { id: string; title: string }) => {
+    cancelDrawerClose()
+    handleChapterDblClick(chapter)
+  }
 </script>
 
 <template>
@@ -684,7 +716,7 @@
       <aside
         v-if="drawerVisible"
         class="fullscreen-drawer chapter-sidebar flex flex-col overflow-hidden"
-        @click.stop>
+        @click.stop="handleSidebarClick">
         <div class="flex items-center justify-between px-3 shrink-0 sidebar-header">
           <span class="text-sm font-semibold sidebar-title">
             <span class="i-carbon-catalog mr-1" />{{ t('editor.chapterList') }}
@@ -710,8 +742,8 @@
               :delete-confirm-text="t('editor.confirmDeleteChapter')" :add-sub-text="t('editor.addSubChapter')"
               :promote-text="t('editor.promoteChapter')" :delete-text="t('editor.deleteChapter')"
               :confirm-text="t('editor.confirm')" :cancel-text="t('editor.cancel')"
-              :rename-placeholder="t('editor.renamePlaceholder')" @select="handleChapterClick"
-              @rename-start="handleChapterDblClick" @rename-confirm="confirmRename" @rename-cancel="cancelRename"
+              :rename-placeholder="t('editor.renamePlaceholder')" @select="onChapterClick"
+              @rename-start="onChapterDblClick" @rename-confirm="confirmRename" @rename-cancel="cancelRename"
               @rename-input="editingTitle = $event" @add-sub="handleAddSubChapter" @promote="handlePromoteChapter"
               @delete="handleDeleteChapter" @reorder="onChapterSortEnd" @toggle-collapse="toggleCollapse" />
           </div>
@@ -736,7 +768,8 @@
     </div>
 
     <aside v-if="!isMobile && !isFullscreen" class="chapter-sidebar shrink-0 flex flex-col overflow-hidden"
-      :style="{ width: sidebarWidth + 'px' }">
+      :style="{ width: sidebarWidth + 'px' }"
+      @click="handleSidebarClick">
       <div class="flex items-center justify-between px-3 shrink-0 sidebar-header">
         <span class="text-sm font-semibold sidebar-title">
           <span class="i-carbon-catalog mr-1" />{{ t('editor.chapterList') }}

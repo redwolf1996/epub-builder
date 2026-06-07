@@ -76,7 +76,7 @@ export function useChapter() {
       updatedAt: now,
     }
     await db.chapters.add(chapter)
-    chapters.value.push(chapter)
+    chapters.value = [...chapters.value, chapter]
     return id
   }
 
@@ -99,10 +99,16 @@ export function useChapter() {
   }
 
   const updateChapterTitle = async (id: string, title: string) => {
-    await db.chapters.update(id, { title, updatedAt: Date.now() })
+    const now = Date.now()
+    await db.chapters.update(id, { title, updatedAt: now })
     const idx = chapters.value.findIndex((c) => c.id === id)
     if (idx !== -1) {
-      chapters.value[idx].title = title
+      const updated = { ...chapters.value[idx], title, updatedAt: now }
+      chapters.value = [
+        ...chapters.value.slice(0, idx),
+        updated,
+        ...chapters.value.slice(idx + 1),
+      ]
     }
   }
 

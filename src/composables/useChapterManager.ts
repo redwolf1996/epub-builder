@@ -29,7 +29,7 @@ export function useChapterManager(
 
   watch(() => bookStore.chapters, (chapters) => {
     localChapters.value = [...chapters]
-  }, { immediate: true, deep: true })
+  }, { immediate: true })
 
   const filteredChapters = computed(() => {
     const keyword = chapterSearch.value.trim().toLowerCase()

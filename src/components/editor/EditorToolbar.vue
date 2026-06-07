@@ -13,6 +13,7 @@ const props = defineProps<{
   syncScroll?: boolean
   previewMode?: boolean
   compact?: boolean
+  uiFontSize?: number
 }>()
 
 const emit = defineEmits<{
@@ -24,6 +25,9 @@ const emit = defineEmits<{
   toggleChapter: []
   toggleScrollSync: []
   togglePreview: []
+  zoomIn: []
+  zoomOut: []
+  zoomReset: []
 }>()
 
 export interface EditorActions {
@@ -220,6 +224,35 @@ const handleExportSelect = (key: string) => {
     <div class="toolbar-group flex items-center gap-1">
       <NTooltip trigger="hover">
         <template #trigger>
+          <NButton quaternary size="tiny" @click="emit('zoomOut')">
+            <span class="i-carbon-zoom-out text-sm" />
+          </NButton>
+        </template>
+        {{ withShortcut(t('toolbar.fontSizeDown'), 'Ctrl+-') }}
+      </NTooltip>
+      <NTooltip trigger="hover">
+        <template #trigger>
+          <NButton quaternary size="tiny" class="font-size-indicator" @click="emit('zoomReset')">
+            <span class="text-xs font-medium tabular-nums">{{ props.uiFontSize ?? 14 }}</span>
+          </NButton>
+        </template>
+        {{ withShortcut(t('toolbar.fontSizeReset'), 'Ctrl+0') }}
+      </NTooltip>
+      <NTooltip trigger="hover">
+        <template #trigger>
+          <NButton quaternary size="tiny" @click="emit('zoomIn')">
+            <span class="i-carbon-zoom-in text-sm" />
+          </NButton>
+        </template>
+        {{ withShortcut(t('toolbar.fontSizeUp'), 'Ctrl++') }}
+      </NTooltip>
+    </div>
+
+    <div class="toolbar-divider" />
+
+    <div class="toolbar-group flex items-center gap-1">
+      <NTooltip trigger="hover">
+        <template #trigger>
           <NButton quaternary size="tiny" @click="editorRef?.indentAll?.()">
             <span class="i-carbon-text-align-justify text-sm" />
           </NButton>
@@ -376,6 +409,11 @@ const handleExportSelect = (key: string) => {
 
 .sync-toggle {
   min-width: 28px;
+}
+
+.font-size-indicator {
+  min-width: 28px;
+  padding-inline: 4px;
 }
 
 .more-panel {

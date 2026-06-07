@@ -166,6 +166,7 @@ export default {
     editMode: '编辑模式',
     fontSizeDown: '减小字号',
     fontSizeUp: '增大字号',
+    fontSizeReset: '重置字号',
   },
   settings: {
     title: '书籍设置',

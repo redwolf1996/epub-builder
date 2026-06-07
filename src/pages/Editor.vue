@@ -14,6 +14,7 @@
   import { useResizable } from '@/composables/useResizable'
   import { useChapterManager } from '@/composables/useChapterManager'
   import { useScrollSync } from '@/composables/useScrollSync'
+  import { useEditorZoom } from '@/composables/useEditorZoom'
   import ImportDialog from '@/components/import/ImportDialog.vue'
   import type { EditorActions } from '@/components/editor/EditorToolbar.vue'
   import type { ApplyImportResult, ImportDocument, ImportMode } from '@/types'
@@ -102,6 +103,14 @@
   } = useChapterManager(bookStore, editorStore, cmEditorRef, bookId, message, t)
   const { handleEditorScroll, handlePreviewScroll } = useScrollSync(cmEditorRef, previewRef, syncScroll)
   const { exporting, handleExport: doExport, validateExport } = useExport()
+  const {
+    fontSize: uiFontSize,
+    increase: zoomIn,
+    decrease: zoomOut,
+    reset: zoomReset,
+    handleWheel: handleZoomWheel,
+    handleKeydown: handleZoomKeydown,
+  } = useEditorZoom(cmEditorRef, previewRef)
 
   const showDrawerToggle = computed(() => isFullscreen.value || isMobile.value)
   const drawerVisible = computed(() => showDrawerToggle.value && showChapterDrawer.value)
@@ -289,6 +298,8 @@
   }
 
   const handleKeydown = (e: KeyboardEvent) => {
+    if (handleZoomKeydown(e)) return
+
     if (e.key === 'F11') {
       e.preventDefault()
       toggleFullscreen()
@@ -298,6 +309,11 @@
       e.preventDefault()
       void editorStore.flushSave()
     }
+  }
+
+  const onEditorWheel = (event: WheelEvent) => {
+    if (!event.ctrlKey && !event.metaKey) return
+    handleZoomWheel(event)
   }
 
   const handleEditorAreaClick = () => {
@@ -617,6 +633,7 @@
 
     window.addEventListener('resize', handleResize)
     window.addEventListener('keydown', handleKeydown)
+    splitContainerRef.value?.addEventListener('wheel', onEditorWheel, { passive: false })
     window.addEventListener('menu-export', handleMenuExport as EventListener)
     window.addEventListener('menu-find-replace', onMenuFindReplace)
     window.addEventListener('menu-fullscreen', toggleFullscreen)
@@ -628,6 +645,7 @@
     aiOcrClipboardUnlisten.value = null
     window.removeEventListener('resize', handleResize)
     window.removeEventListener('keydown', handleKeydown)
+    splitContainerRef.value?.removeEventListener('wheel', onEditorWheel)
     window.removeEventListener('menu-export', handleMenuExport as EventListener)
     window.removeEventListener('menu-find-replace', onMenuFindReplace)
     window.removeEventListener('menu-fullscreen', toggleFullscreen)
@@ -768,10 +786,11 @@
     <main class="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden" @click="handleEditorAreaClick">
       <EditorToolbar :editor-ref="editorActions" :exporting="exporting" :ocr-processing="anyOcrProcessing"
         :show-chapter-toggle="showDrawerToggle" :chapter-toggle-active="showChapterDrawer" :sync-scroll="syncScroll"
-        :preview-mode="editorStore.previewMode" :compact="isMobile" @export="handleExport" @import="showImportModal = true"
-        @ai-ocr="handleAiOcr" @fullscreen="toggleFullscreen" @open-devtools="openDevtools"
-        @toggle-chapter="showChapterDrawer = !showChapterDrawer" @toggle-scroll-sync="onMenuScrollSync"
-        @toggle-preview="editorStore.togglePreviewMode()" />
+        :preview-mode="editorStore.previewMode" :compact="isMobile" :ui-font-size="uiFontSize"
+        @export="handleExport" @import="showImportModal = true" @ai-ocr="handleAiOcr" @fullscreen="toggleFullscreen"
+        @open-devtools="openDevtools" @toggle-chapter="showChapterDrawer = !showChapterDrawer"
+        @toggle-scroll-sync="onMenuScrollSync" @toggle-preview="editorStore.togglePreviewMode()"
+        @zoom-in="zoomIn" @zoom-out="zoomOut" @zoom-reset="zoomReset" />
 
       <div ref="splitContainerRef" class="split-container flex-1 flex min-h-0 overflow-hidden">
         <div class="min-h-0 overflow-hidden" :style="{ width: isMobile ? '100%' : `${editorRatio * 100}%` }"

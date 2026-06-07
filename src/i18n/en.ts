@@ -166,6 +166,7 @@ export default {
     editMode: 'Edit Mode',
     fontSizeDown: 'Decrease Font Size',
     fontSizeUp: 'Increase Font Size',
+    fontSizeReset: 'Reset Font Size',
   },
   settings: {
     title: 'Book Settings',

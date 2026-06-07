@@ -543,8 +543,7 @@
     },
     setFontSize: (size: number) => {
       if (!editorRef.value) return
-      const el = editorRef.value.dom.querySelector('.cm-content') as HTMLElement | null
-      if (el) el.style.fontSize = `${size}px`
+      editorRef.value.dom.style.fontSize = `${size}px`
     },
     openSearch: () => {
       if (!editorRef.value) return

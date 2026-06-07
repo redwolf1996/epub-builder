@@ -154,6 +154,10 @@ defineExpose({
   getPositionMap,
   getLastUserScrollIntent: () => lastUserScrollIntent,
   setScrollTop,
+  setFontSize: (size: number) => {
+    if (!previewRef.value) return
+    previewRef.value.style.fontSize = `${size}px`
+  },
 })
 </script>
 
